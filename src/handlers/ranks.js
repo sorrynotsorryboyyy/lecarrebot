@@ -8,6 +8,8 @@ import {
 import { COLORS } from '../lib/config.js';
 import { log } from '../lib/logger.js';
 import { RANK_SERIES, rankByKey } from '../lib/ranks.js';
+import { IDENTITY_GROUPS, identityByKey } from '../lib/identity.js';
+import { parseJsonColumn } from '../lib/jsonColumn.js';
 
 /**
  * Rangs CS2 auto-attribuables.
@@ -17,18 +19,11 @@ import { RANK_SERIES, rankByKey } from '../lib/ranks.js';
  * automatiquement l'ancien rang Premier sans toucher au niveau Faceit.
  */
 
-/** `rank_roles` peut arriver en objet (JSONB) ou en chaîne selon le driver. */
-export function parseRankRoles(value) {
-  if (!value) return {};
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return {};
-    }
-  }
-  return { ...value };
-}
+/**
+ * Conservé pour compatibilité : la lecture tolérante des colonnes JSONB
+ * vit désormais dans lib/jsonColumn.js, partagée par tous les appelants.
+ */
+export const parseRankRoles = parseJsonColumn;
 
 /**
  * Construit les menus déroulants, une rangée par série.
@@ -36,16 +31,22 @@ export function parseRankRoles(value) {
  * Limites Discord respectées : 25 options par menu (on en a 7 et 4) et
  * 5 rangées par message (on en a 2).
  */
-export function buildRankMenus(cfg) {
-  const map = parseRankRoles(cfg?.rank_roles);
+/**
+ * Construit les rangées de menus pour un ensemble de groupes.
+ *
+ * Générique : sert aux rangs CS2 (`rank_roles`) comme aux rôles
+ * d'identité (`identity_roles`). Discord plafonne à 5 rangées par
+ * message, d'où deux panneaux distincts plutôt qu'un seul saturé.
+ */
+export function buildSelectRows(groups, roleMap, domain) {
   const rows = [];
 
-  for (const series of Object.values(RANK_SERIES)) {
-    // On ne propose que les rangs dont le rôle est réellement résolu :
-    // afficher une option qui échouerait à l'attribution est pire que de
-    // ne pas l'afficher du tout.
-    const options = series.ranks
-      .filter((spec) => map[spec.key])
+  for (const group of Object.values(groups)) {
+    // On ne propose que les options dont le rôle est réellement résolu :
+    // afficher un choix qui échouerait à l'attribution est pire que de ne
+    // pas l'afficher du tout.
+    const options = group.ranks
+      .filter((spec) => roleMap[spec.key])
       .map((spec) => new StringSelectMenuOptionBuilder()
         .setLabel(spec.name)
         .setValue(spec.key)
@@ -54,21 +55,33 @@ export function buildRankMenus(cfg) {
     if (options.length === 0) continue;
 
     options.push(new StringSelectMenuOptionBuilder()
-      .setLabel(`Retirer mon ${series.label.toLowerCase()}`)
-      .setValue(`clear-${series.id}`)
+      .setLabel(`Retirer — ${group.label}`)
+      .setValue(`clear-${group.id}`)
       .setEmoji('🚫'));
 
-    rows.push(new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId(`ranks:set:${series.id}`)
-        .setPlaceholder(series.placeholder)
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(options),
-    ));
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`${domain}:set:${group.id}`)
+      .setPlaceholder(group.placeholder)
+      .setMinValues(1)
+      // Multi-sélection pour les groupes non exclusifs (style de jeu).
+      // L'option « Retirer » occupe un cran, d'où le -1.
+      .setMaxValues(group.multi ? Math.max(1, options.length - 1) : 1)
+      .addOptions(options);
+
+    rows.push(new ActionRowBuilder().addComponents(menu));
   }
 
   return rows;
+}
+
+/** Menus des rangs CS2 (Premier + Faceit). */
+export function buildRankMenus(cfg) {
+  return buildSelectRows(RANK_SERIES, parseRankRoles(cfg?.rank_roles), 'ranks');
+}
+
+/** Menus des rôles d'identité (âge, genre, style de jeu). */
+export function buildIdentityMenus(cfg) {
+  return buildSelectRows(IDENTITY_GROUPS, parseRankRoles(cfg?.identity_roles), 'identity');
 }
 
 /** Panneau permanent publié dans #🎭-roles. */
@@ -94,69 +107,97 @@ export function buildRankPanel(cfg) {
  * La valeur sélectionnée arrive dans `interaction.values`, jamais dans le
  * customId — c'est la différence essentielle avec un bouton.
  */
-export async function setRank(interaction, seriesId, cfg) {
-  const value = interaction.values?.[0];
-  if (!value) return;
+export async function setRank(interaction, groupId, cfg, domain = 'ranks') {
+  const values = interaction.values ?? [];
+  if (values.length === 0) return;
 
-  const series = RANK_SERIES[seriesId];
-  if (!series) return;
+  const isIdentity = domain === 'identity';
+  const groups = isIdentity ? IDENTITY_GROUPS : RANK_SERIES;
+  const group = groups[groupId];
+  if (!group) return;
 
-  const map = parseRankRoles(cfg?.rank_roles);
+  const map = parseRankRoles(isIdentity ? cfg?.identity_roles : cfg?.rank_roles);
   const member = interaction.member;
 
-  // Tous les rôles de la série, pour retirer l'ancien rang.
-  const seriesRoleIds = series.ranks
-    .map((spec) => map[spec.key])
-    .filter(Boolean);
+  // Tous les rôles du groupe, pour retirer les anciens choix.
+  const groupRoleIds = group.ranks.map((spec) => map[spec.key]).filter(Boolean);
 
-  const isClear = value === `clear-${series.id}`;
-  const targetId = isClear ? null : map[value];
+  const isClear = values.includes(`clear-${group.id}`);
+  const chosen = values.filter((v) => v !== `clear-${group.id}`);
+  const targetIds = chosen.map((v) => map[v]).filter(Boolean);
 
-  if (!isClear && !targetId) {
+  if (!isClear && targetIds.length === 0) {
     return interaction.reply({
       content:
-        '⚠️ Ce rang n\'est pas configuré sur le serveur. ' +
+        '⚠️ Ce rôle n\'est pas configuré sur le serveur. ' +
         'Demande à un administrateur de relancer `/setup`.',
       flags: MessageFlags.Ephemeral,
     });
   }
 
   try {
-    // Retire les autres rangs de la MÊME série uniquement : le rang de
-    // l'autre série doit rester intact.
-    const toRemove = seriesRoleIds.filter(
-      (id) => id !== targetId && member.roles.cache.has(id),
+    // Retire les autres rôles du MÊME groupe : les autres groupes (rang de
+    // l'autre série, genre, style…) restent intacts.
+    const toRemove = groupRoleIds.filter(
+      (id) => !targetIds.includes(id) && member.roles.cache.has(id),
     );
     if (toRemove.length > 0) {
-      await member.roles.remove(toRemove, 'Changement de rang CS2');
+      await member.roles.remove(toRemove, `Changement — ${group.label}`);
     }
 
-    if (isClear) {
+    if (isClear && targetIds.length === 0) {
       return interaction.reply({
-        content: `🚫 Ton **${series.label.toLowerCase()}** a été retiré.`,
+        content: `🚫 **${group.label}** retiré.`,
         flags: MessageFlags.Ephemeral,
       });
     }
 
-    if (!member.roles.cache.has(targetId)) {
-      await member.roles.add(targetId, 'Choix de rang CS2');
+    const toAdd = targetIds.filter((id) => !member.roles.cache.has(id));
+    if (toAdd.length > 0) {
+      await member.roles.add(toAdd, `Choix — ${group.label}`);
     }
 
-    const rank = rankByKey(value);
+    // rankByKey peut renvoyer null si une clé du groupe n'existe pas dans
+    // les tables : on ne déréférence jamais sans contrôle.
+    const labels = chosen
+      .map((v) => (isIdentity ? identityByKey(v) : rankByKey(v)))
+      .filter(Boolean)
+      .map((spec) => `${spec.emoji} **${spec.name}**`);
+
     return interaction.reply({
-      content: `${rank.emoji} Ton rang est maintenant **${rank.name}**. Bon jeu !`,
+      content: labels.length > 0
+        ? `✅ ${group.label} : ${labels.join(', ')}`
+        : '✅ Tes rôles ont été mis à jour.',
       flags: MessageFlags.Ephemeral,
     });
   } catch (err) {
-    log.warn(`Attribution du rang impossible pour ${interaction.user.tag} : ${err.message}`);
+    log.warn(`Attribution de rôle impossible pour ${interaction.user.tag} : ${err.message}`);
     return interaction.reply({
       content:
         '❌ Je n\'ai pas pu modifier tes rôles.\n\n' +
-        'Mon rôle doit être **au-dessus** des rôles de rang dans ' +
+        'Mon rôle doit être **au-dessus** des rôles concernés dans ' +
         '**Paramètres du serveur → Rôles**. Préviens un administrateur.',
       flags: MessageFlags.Ephemeral,
     });
   }
+}
+
+/** Panneau permanent « À propos de toi » (âge, genre, style de jeu). */
+export function buildIdentityPanel(cfg) {
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.info)
+    .setTitle('🧩 À propos de toi')
+    .setDescription(
+      'Ces rôles aident la communauté à mieux te connaître et à former des ' +
+      'équipes qui te correspondent.\n\n' +
+      '> 🔞 **Âge** — pour les salons et événements adaptés\n' +
+      '> ♂️ **Genre** — facultatif, comme tout le reste\n' +
+      '> 😎 **Style de jeu** — tu peux choisir les deux !\n\n' +
+      'Rien n\'est obligatoire : choisis seulement ce que tu veux afficher.',
+    )
+    .setFooter({ text: 'Modifiable à tout moment.' });
+
+  return { embeds: [embed], components: buildIdentityMenus(cfg) };
 }
 
 /** Lit les rangs actuels d'un membre — utilisé par /profil et /stats. */
@@ -169,6 +210,21 @@ export function readMemberRanks(member, cfg) {
       (r) => map[r.key] && member.roles.cache.has(map[r.key]),
     );
     result[series.id] = spec ?? null;
+  }
+
+  return result;
+}
+
+/** Lit les rôles d'identité d'un membre. Le style de jeu peut être multiple. */
+export function readMemberIdentity(member, cfg) {
+  const map = parseRankRoles(cfg?.identity_roles);
+  const result = {};
+
+  for (const group of Object.values(IDENTITY_GROUPS)) {
+    const found = group.ranks.filter(
+      (r) => map[r.key] && member.roles.cache.has(map[r.key]),
+    );
+    result[group.id] = group.multi ? found : (found[0] ?? null);
   }
 
   return result;

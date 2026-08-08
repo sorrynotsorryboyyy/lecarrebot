@@ -9,6 +9,19 @@ import {
   startVerification,
 } from '../handlers/verification.js';
 import { setRank } from '../handlers/ranks.js';
+import {
+  handleVoiceButton,
+  handleVoiceMemberSelect,
+  handleVoiceModal,
+} from '../handlers/tempVoice.js';
+import {
+  cancelDraft,
+  openComposer,
+  publishDraft,
+  receiveComposer,
+} from '../handlers/panel.js';
+import { receiveStrat } from '../commands/admin/strat.js';
+import { handleProfileButton } from '../handlers/profilePanel.js';
 import { closeLfg, joinLfg, leaveLfg } from '../handlers/lfg.js';
 import { joinTournament, leaveTournament } from '../handlers/tournoi.js';
 import { enterGiveaway } from '../handlers/giveaway.js';
@@ -29,6 +42,8 @@ export async function execute(interaction) {
     if (interaction.isChatInputCommand()) return await runCommand(interaction);
     if (interaction.isButton()) return await runButton(interaction);
     if (interaction.isStringSelectMenu()) return await runSelectMenu(interaction);
+    if (interaction.isUserSelectMenu()) return await runUserSelect(interaction);
+    if (interaction.isModalSubmit()) return await runModal(interaction);
   } catch (err) {
     if (BENIGN_CODES.has(err.code)) {
       log.warn(
@@ -117,6 +132,21 @@ async function runButton(interaction) {
   if (domain === 'rules' && action === 'accept') {
     return acceptRulesFromPanel(interaction);
   }
+
+  if (domain === 'voice') {
+    return handleVoiceButton(interaction, action);
+  }
+
+  if (domain === 'panel') {
+    if (action === 'publish') return publishDraft(interaction);
+    if (action === 'cancel') return cancelDraft(interaction);
+    if (action === 'edit') return openComposer(interaction, arg);
+    return;
+  }
+
+  if (domain === 'profile') {
+    return handleProfileButton(interaction, action);
+  }
 }
 
 /**
@@ -131,9 +161,48 @@ async function runSelectMenu(interaction) {
 
   const [domain, action, arg] = interaction.customId.split(':');
 
-  if (domain === 'ranks' && action === 'set') {
+  if ((domain === 'ranks' || domain === 'identity') && action === 'set') {
     const cfg = await getGuildConfig(interaction.guild.id);
-    return setRank(interaction, arg, cfg);
+    return setRank(interaction, arg, cfg, domain);
+  }
+
+  if (domain === 'panel' && action === 'type') {
+    // showModal() ne peut pas suivre un defer : on ouvre directement.
+    return openComposer(interaction, interaction.values[0]);
+  }
+}
+
+/** Menus de sélection de membre (gestion des salons vocaux). */
+async function runUserSelect(interaction) {
+  if (!interaction.guild) return;
+
+  const [domain, action, arg] = interaction.customId.split(':');
+
+  if (domain === 'voice' && action === 'member') {
+    return handleVoiceMemberSelect(interaction, arg);
+  }
+}
+
+/**
+ * Routeur des formulaires.
+ * Les valeurs saisies arrivent via `interaction.fields`, un troisième
+ * espace de nommage après les customId et `interaction.values`.
+ */
+async function runModal(interaction) {
+  if (!interaction.guild) return;
+
+  const [domain, action, arg] = interaction.customId.split(':');
+
+  if (domain === 'voice' && action === 'modal') {
+    return handleVoiceModal(interaction, arg);
+  }
+
+  if (domain === 'panel' && action === 'submit') {
+    return receiveComposer(interaction, arg);
+  }
+
+  if (domain === 'strat' && action === 'submit') {
+    return receiveStrat(interaction, arg);
   }
 }
 

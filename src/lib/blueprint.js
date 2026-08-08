@@ -34,6 +34,14 @@ export const ROLES = [
     ],
   },
   {
+    key: 'vip',
+    name: '💎 Elite',
+    color: 0x00d4ff,
+    hoist: true,
+    permissions: [],
+    aliases: ['VIP', 'Elite (VIP)', '💎 Elite (VIP)', 'Premium'],
+  },
+  {
     key: 'verified',
     name: '🎮 Membre',
     color: 0x2ecc71,
@@ -82,14 +90,7 @@ export const CATEGORIES = [
       {
         key: 'rules',
         name: '📜-reglement',
-        topic: 'Le règlement du serveur',
-        access: 'members',
-        readOnly: true,
-      },
-      {
-        key: 'announcements',
-        name: '📢-annonces',
-        topic: 'Annonces importantes du serveur',
+        topic: 'Le règlement à accepter pour devenir membre',
         access: 'members',
         readOnly: true,
       },
@@ -98,11 +99,12 @@ export const CATEGORIES = [
         name: '👋-bienvenue',
         topic: 'Les nouveaux membres sont accueillis ici',
         access: 'members',
+        readOnly: true,
       },
       {
         key: 'roles',
         name: '🎭-roles',
-        topic: 'Choisis ton rang CS2 avec les menus ci-dessous',
+        topic: 'Choisis ton rang CS2 et tes rôles avec les menus',
         access: 'members',
         readOnly: true,
       },
@@ -113,10 +115,33 @@ export const CATEGORIES = [
     name: '💬 COMMUNAUTÉ',
     access: 'members',
     channels: [
-      { key: 'general', name: '💬-general', topic: 'Discussion générale' },
-      { key: 'memes', name: '😂-memes', topic: 'Vos meilleurs memes' },
-      { key: 'clips', name: '🎬-clips', topic: 'Vos plus beaux frags et clips' },
+      {
+        key: 'general',
+        name: '💬-general',
+        topic: 'Discussion générale — GIF autorisés, images et liens non',
+        // Discussion : on garde le salon lisible. Les GIF passent (réaction,
+        // humour), mais ni images, ni vidéos, ni liens externes.
+        mediaPolicy: 'discussion',
+      },
+      {
+        key: 'memes',
+        name: '😂-memes',
+        topic: 'Vos meilleurs memes — tout est autorisé',
+        mediaPolicy: 'free',
+      },
+      {
+        key: 'clips',
+        name: '🎬-clips',
+        topic: 'Vos plus beaux frags — liens et vidéos uniquement',
+        mediaPolicy: 'clips',
+      },
       { key: 'suggestions', name: '💡-suggestions', topic: 'Propose tes idées pour le serveur' },
+      {
+        key: 'vote',
+        name: '🗳️-vote',
+        topic: 'Vote pour le serveur et gagne des récompenses',
+        readOnly: true,
+      },
     ],
   },
   {
@@ -127,11 +152,20 @@ export const CATEGORIES = [
       {
         key: 'lfg',
         name: '🎮-recherche-mates',
-        topic: 'Trouve des coéquipiers avec /lfg',
+        topic: 'Trouve des coéquipiers avec /recherche',
       },
-      { key: 'cs2', name: '🔫-cs2', topic: 'Tout sur Counter-Strike 2' },
-      { key: 'strats', name: '📊-strats-et-tips', topic: 'Stratégies, line-ups et conseils' },
-      { key: 'other-games', name: '🕹️-autres-jeux', topic: 'Les autres jeux de la communauté' },
+      {
+        key: 'cs2',
+        name: '📰-news-cs2',
+        topic: 'Actualités et mises à jour de Counter-Strike 2',
+        readOnly: true,
+      },
+      {
+        key: 'strats',
+        name: '📊-strats-et-tips',
+        topic: 'Stratégies, line-ups et conseils publiés par le staff',
+        readOnly: true,
+      },
     ],
   },
   {
@@ -139,6 +173,12 @@ export const CATEGORIES = [
     name: '🏆 ÉVÉNEMENTS',
     access: 'members',
     channels: [
+      {
+        key: 'announcements',
+        name: '📢-annonces',
+        topic: 'Annonces importantes du serveur',
+        readOnly: true,
+      },
       {
         key: 'tournaments',
         name: '🏆-tournois',
@@ -155,14 +195,37 @@ export const CATEGORIES = [
     ],
   },
   {
+    key: 'profile',
+    name: '👤 PROFIL',
+    access: 'members',
+    channels: [
+      {
+        key: 'profile',
+        name: '📇-profil',
+        topic: 'Consulte ton profil et ta progression',
+        readOnly: true,
+      },
+      {
+        key: 'commands',
+        name: '🤖-commandes',
+        topic: 'Utilise les commandes du bot ici',
+      },
+      {
+        key: 'xp',
+        name: '📊-xp',
+        topic: 'Montées de niveau et classement',
+        readOnly: true,
+      },
+    ],
+  },
+  {
     key: 'voice',
     name: '🔊 VOCAUX',
     access: 'members',
     channels: [
-      { key: 'voice-lobby', name: '🎧 Lobby', type: 'voice' },
-      { key: 'voice-cs1', name: '🔫 CS2 — Équipe 1', type: 'voice', userLimit: 5 },
-      { key: 'voice-cs2', name: '🔫 CS2 — Équipe 2', type: 'voice', userLimit: 5 },
-      { key: 'voice-duo', name: '👥 Duo', type: 'voice', userLimit: 2 },
+      // Salon « générateur » : le rejoindre crée un vocal personnel et y
+      // déplace le membre. Il reste vide en permanence.
+      { key: 'voice-hub', name: '➕ Créer un salon', type: 'voice', userLimit: 1 },
       { key: 'voice-afk', name: '💤 AFK', type: 'voice' },
     ],
   },
@@ -181,6 +244,19 @@ export const CATEGORIES = [
       { key: 'staff-voice', name: '🛡️ Staff', type: 'voice' },
     ],
   },
+];
+
+/**
+ * Salons retirés du plan lors d'une refonte.
+ *
+ * `/setup` les supprime — mais UNIQUEMENT si leur identifiant figure en
+ * base, c'est-à-dire s'il les a lui-même créés. Un salon du même nom créé
+ * à la main n'est jamais touché : une suppression Discord est
+ * irréversible et emporte tout l'historique.
+ */
+export const RETIRED_CHANNEL_KEYS = [
+  'other-games',                                  // 🕹️-autres-jeux
+  'voice-lobby', 'voice-cs1', 'voice-cs2', 'voice-duo', // vocaux fixes
 ];
 
 /**

@@ -52,13 +52,16 @@ export async function joinLfg(interaction, postId) {
   // L'insertion et le contrôle de capacité sont faits en une seule requête.
   // Séparés, plusieurs clics simultanés passeraient tous le test avant qu'aucun
   // n'ait inséré, et l'annonce dépasserait le nombre de places.
+  //
+  // `slots` compte l'équipe ENTIÈRE, créateur inclus : il ne reste donc
+  // que `slots - 1` places à pourvoir.
   const inserted = await query(
     `INSERT INTO lfg_joins (post_id, user_id)
      SELECT $1, $2
      WHERE (SELECT COUNT(*) FROM lfg_joins WHERE post_id = $1) < $3
      ON CONFLICT DO NOTHING
      RETURNING user_id`,
-    [postId, interaction.user.id, post.slots],
+    [postId, interaction.user.id, Math.max(0, post.slots - 1)],
   );
 
   if (inserted.rowCount === 0) {

@@ -13,16 +13,17 @@ import { COLORS } from './config.js';
  */
 
 /** Embed + bouton de participation d'un giveaway. */
-export function buildGiveawayMessage({ id, prize, winners, endsAt, entries, ended }) {
+export function buildGiveawayMessage({ id, prize, winners, endsAt, entries, ended, vipOnly = false }) {
   const ts = Math.floor(new Date(endsAt).getTime() / 1000);
 
   const embed = new EmbedBuilder()
-    .setColor(ended ? COLORS.info : COLORS.warning)
-    .setTitle(`🎁 ${prize}`)
+    .setColor(ended ? COLORS.info : vipOnly ? 0x00d4ff : COLORS.warning)
+    .setTitle(`${vipOnly ? '💎 ' : '🎁 '}${prize}`)
     .setDescription(
       ended
         ? '**Ce giveaway est terminé.**'
-        : `Clique sur 🎉 pour participer !\n\n**Fin :** <t:${ts}:F> (<t:${ts}:R>)`,
+        : (vipOnly ? '💎 **Réservé aux membres Elite (VIP).**\n\n' : '')
+          + `Clique sur 🎉 pour participer !\n\n**Fin :** <t:${ts}:F> (<t:${ts}:R>)`,
     )
     .addFields(
       { name: 'Gagnant(s)', value: String(winners), inline: true },
@@ -97,7 +98,10 @@ export function buildTournamentMessage({
 
 /** Embed + boutons d'une annonce de recherche de mates. */
 export function buildLfgMessage({ id, author, mode, rank, slots, note, joined, closed }) {
-  const remaining = Math.max(0, slots - joined.length);
+  // `slots` est l'effectif TOTAL de l'équipe, créateur compris : demander
+  // 5 pour du 5v5 doit donner une équipe de 5, pas de 6.
+  const team = joined.length + 1;
+  const remaining = Math.max(0, slots - team);
   const full = remaining === 0;
 
   const embed = new EmbedBuilder()
@@ -108,7 +112,11 @@ export function buildLfgMessage({ id, author, mode, rank, slots, note, joined, c
     })
     .setTitle(`🎮 ${mode}`)
     .addFields(
-      { name: 'Places', value: closed ? '—' : `${joined.length}/${slots}`, inline: true },
+      {
+        name: 'Équipe',
+        value: closed ? '—' : `${team}/${slots}` + (full ? '' : ` · ${remaining} place(s)`),
+        inline: true,
+      },
       { name: 'Rang', value: rank || 'Peu importe', inline: true },
     )
     .setFooter({ text: `Annonce #${id}` })
@@ -116,12 +124,15 @@ export function buildLfgMessage({ id, author, mode, rank, slots, note, joined, c
 
   if (note) embed.addFields({ name: 'Précisions', value: note });
 
-  if (joined.length > 0) {
-    embed.addFields({
-      name: 'Inscrits',
-      value: joined.map((uid) => `<@${uid}>`).join('\n'),
-    });
-  }
+  // Le créateur fait partie de l'équipe : l'afficher évite de croire
+  // qu'une place est libre alors qu'il l'occupe déjà.
+  embed.addFields({
+    name: 'Composition',
+    value: [
+      `👑 <@${author.id}>`,
+      ...joined.map((uid) => `▫️ <@${uid}>`),
+    ].join('\n'),
+  });
 
   if (closed) {
     embed.setDescription('🔒 **Annonce fermée.**');

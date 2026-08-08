@@ -134,6 +134,9 @@ export async function initDatabase() {
       verified_role_id    TEXT,
       member_role_id      TEXT,
       rank_roles          JSONB NOT NULL DEFAULT '{}'::jsonb,
+      identity_roles      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      channel_ids         JSONB NOT NULL DEFAULT '{}'::jsonb,
+      vip_role_id         TEXT,
       rules_message_id    TEXT,
       rules_text          TEXT,
       antiraid_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
@@ -238,6 +241,56 @@ export async function initDatabase() {
       joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (post_id, user_id)
     );
+
+    -- Expérience et niveaux
+    CREATE TABLE IF NOT EXISTS member_xp (
+      guild_id        TEXT NOT NULL,
+      user_id         TEXT NOT NULL,
+      xp              BIGINT NOT NULL DEFAULT 0,
+      level           INTEGER NOT NULL DEFAULT 0,
+      messages        INTEGER NOT NULL DEFAULT 0,
+      voice_minutes   INTEGER NOT NULL DEFAULT 0,
+      searches        INTEGER NOT NULL DEFAULT 0,
+      last_message_at TIMESTAMPTZ,
+      last_search_at  TIMESTAMPTZ,
+      PRIMARY KEY (guild_id, user_id)
+    );
+    -- Classement : tri décroissant sur l'XP au sein d'un serveur.
+    CREATE INDEX IF NOT EXISTS idx_xp_leaderboard ON member_xp (guild_id, xp DESC);
+
+    -- Salons vocaux créés à la demande
+    CREATE TABLE IF NOT EXISTS temp_voice_channels (
+      channel_id TEXT PRIMARY KEY,
+      guild_id   TEXT NOT NULL,
+      owner_id   TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Membres VIP / Elite
+    CREATE TABLE IF NOT EXISTS vip_members (
+      guild_id   TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      granted_by TEXT NOT NULL,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (guild_id, user_id)
+    );
+
+    -- Stratégies et line-ups publiés par le staff
+    CREATE TABLE IF NOT EXISTS strats (
+      id          SERIAL PRIMARY KEY,
+      guild_id    TEXT NOT NULL,
+      message_id  TEXT,
+      map         TEXT NOT NULL,
+      side        TEXT,
+      title       TEXT NOT NULL,
+      description TEXT,
+      link        TEXT,
+      created_by  TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Giveaways réservés aux VIP (colonne ajoutée en migration ci-dessous)
   `);
 
   // Migrations additives.
@@ -250,6 +303,11 @@ export async function initDatabase() {
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS roles_channel_id   TEXT;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS rules_message_id   TEXT;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS rank_roles JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS identity_roles JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS channel_ids JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS vip_role_id TEXT;
+
+    ALTER TABLE giveaways ADD COLUMN IF NOT EXISTS vip_only BOOLEAN NOT NULL DEFAULT FALSE;
   `);
 
   log.info('Base de données initialisée');
@@ -275,7 +333,8 @@ const UPDATABLE_FIELDS = new Set([
   'verify_channel_id', 'rules_channel_id', 'logs_channel_id', 'lfg_channel_id',
   'welcome_channel_id', 'roles_channel_id',
   'unverified_role_id', 'verified_role_id', 'member_role_id',
-  'rank_roles', 'rules_message_id', 'rules_text',
+  'rank_roles', 'identity_roles', 'channel_ids', 'vip_role_id',
+  'rules_message_id', 'rules_text',
   'antiraid_enabled', 'antiraid_joins', 'antiraid_window', 'antiraid_min_age',
   'lockdown_active',
 ]);

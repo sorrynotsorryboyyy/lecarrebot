@@ -2,6 +2,7 @@ import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getGuildConfig, query } from '../../db/index.js';
 import { buildLfgMessage } from '../../lib/embeds.js';
 import { lfgRankChoices } from '../../lib/ranks.js';
+import { grantSearchXp } from '../../handlers/xp.js';
 
 /** Modes de jeu CS2 proposés à l'autocomplétion. */
 const MODES = [
@@ -20,7 +21,7 @@ const MODES = [
 const RANK_CHOICES = lfgRankChoices();
 
 export const data = new SlashCommandBuilder()
-  .setName('lfg')
+  .setName('recherche')
   .setDescription('Cherche des mates pour jouer')
   .addStringOption((o) =>
     o.setName('mode')
@@ -28,11 +29,11 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
       .addChoices(...MODES.map((m) => ({ name: m.name, value: m.value }))))
   .addIntegerOption((o) =>
-    o.setName('places')
-      .setDescription('Nombre de joueurs recherchés')
+    o.setName('équipe')
+      .setDescription('Taille TOTALE de l\'équipe, toi compris (5 = 5v5)')
       .setRequired(true)
-      .setMinValue(1)
-      .setMaxValue(9))
+      .setMinValue(2)
+      .setMaxValue(10))
   .addStringOption((o) =>
     o.setName('rang')
       .setDescription('Ton rang / le rang recherché')
@@ -44,7 +45,7 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction) {
   const mode = interaction.options.getString('mode');
-  const slots = interaction.options.getInteger('places');
+  const slots = interaction.options.getInteger('équipe');
   const rank = interaction.options.getString('rang');
   const note = interaction.options.getString('note');
 
@@ -79,6 +80,10 @@ export async function execute(interaction) {
   );
 
   await query('UPDATE lfg_posts SET message_id = $2 WHERE id = $1', [postId, message.id]);
+
+  // Publier une annonce fait vivre le serveur : on récompense, avec un
+  // délai côté handler pour que le spam d'annonces ne rapporte rien.
+  await grantSearchXp(interaction.guild, interaction.member, cfg).catch(() => {});
 
   const sameChannel = channel.id === interaction.channel.id;
   return interaction.reply({

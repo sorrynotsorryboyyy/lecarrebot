@@ -13,11 +13,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,   // requiert l'intent privilégié "Server Members"
+    GatewayIntentBits.GuildMembers,   // privilégié — "Server Members" dans le portail
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent, // privilégié — "Message Content" dans le portail
+    GatewayIntentBits.GuildVoiceStates, // vocaux à la demande et XP vocal
   ],
   // Permet de répondre aux interactions sur des membres non mis en cache.
-  partials: [Partials.GuildMember, Partials.Channel],
+  partials: [Partials.GuildMember, Partials.Channel, Partials.Message],
 });
 
 client.commands = new Collection();
@@ -98,6 +100,22 @@ async function main() {
 }
 
 main().catch((err) => {
+  // Discord renvoie « Used disallowed intents » quand un intent privilégié
+  // n'est pas coché dans le portail. Le message brut n'indique pas lequel :
+  // on guide explicitement plutôt que de laisser chercher.
+  if (/disallowed intents/i.test(err?.message ?? '')) {
+    log.error(
+      'Intents privilégiés non autorisés.\n\n' +
+      '  Va sur https://discord.com/developers/applications\n' +
+      '  → ton application → Bot → Privileged Gateway Intents\n' +
+      '  et active LES DEUX :\n' +
+      '    • SERVER MEMBERS INTENT\n' +
+      '    • MESSAGE CONTENT INTENT\n\n' +
+      '  Le second est nécessaire aux protections média et au système d\'XP.',
+    );
+    process.exit(1);
+  }
+
   log.error('Démarrage impossible', err);
   process.exit(1);
 });

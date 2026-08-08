@@ -23,7 +23,10 @@ export const data = new SlashCommandBuilder()
       .addIntegerOption((o) =>
         o.setName('gagnants')
           .setDescription('Nombre de gagnants (défaut : 1)')
-          .setMinValue(1).setMaxValue(20)))
+          .setMinValue(1).setMaxValue(20))
+      .addBooleanOption((o) =>
+        o.setName('vip_uniquement')
+          .setDescription('Réserver ce giveaway aux membres Elite (VIP)')))
   .addSubcommand((s) =>
     s.setName('terminer')
       .setDescription('Terminer un giveaway immédiatement')
@@ -59,15 +62,17 @@ async function startGiveaway(interaction) {
 
   const endsAt = new Date(Date.now() + ms);
 
+  const vipOnly = interaction.options.getBoolean('vip_uniquement') ?? false;
+
   const { rows } = await query(
-    `INSERT INTO giveaways (guild_id, channel_id, prize, winners, ends_at, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [interaction.guild.id, interaction.channel.id, prize, winners, endsAt, interaction.user.id],
+    `INSERT INTO giveaways (guild_id, channel_id, prize, winners, ends_at, created_by, vip_only)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [interaction.guild.id, interaction.channel.id, prize, winners, endsAt, interaction.user.id, vipOnly],
   );
   const id = rows[0].id;
 
   const message = await interaction.channel.send(
-    buildGiveawayMessage({ id, prize, winners, endsAt, entries: 0, ended: false }),
+    buildGiveawayMessage({ id, prize, winners, endsAt, entries: 0, ended: false, vipOnly }),
   );
 
   await query('UPDATE giveaways SET message_id = $2 WHERE id = $1', [id, message.id]);

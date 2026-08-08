@@ -3,6 +3,7 @@ import { query } from '../db/index.js';
 import { COLORS } from '../lib/config.js';
 import { log } from '../lib/logger.js';
 import { buildGiveawayMessage } from '../lib/embeds.js';
+import { isVip } from '../commands/admin/vip.js';
 
 /** Participation au tirage. */
 export async function enterGiveaway(interaction, giveawayId) {
@@ -12,6 +13,18 @@ export async function enterGiveaway(interaction, giveawayId) {
   if (!g || g.ended) {
     return interaction.reply({
       content: '🔒 Ce giveaway est terminé.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  // Giveaway réservé : le bouton reste visible pour tous, mais l'accès est
+  // refusé avec une explication — masquer le bouton laisserait croire à un
+  // bug plutôt qu'à une réservation.
+  if (g.vip_only && !(await isVip(interaction.guild.id, interaction.user.id))) {
+    return interaction.reply({
+      content:
+        '💎 Ce giveaway est réservé aux membres **Elite (VIP)**.\n\n' +
+        'Contacte le staff pour savoir comment le devenir.',
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -59,6 +72,7 @@ async function refreshGiveaway(client, giveawayId) {
         endsAt: g.ends_at,
         entries: count[0].n,
         ended: g.ended,
+        vipOnly: g.vip_only,
       }),
     );
   } catch (err) {
@@ -110,6 +124,7 @@ export async function endGiveaway(client, giveaway, { reroll = false } = {}) {
           endsAt: giveaway.ends_at,
           entries: entries.length,
           ended: true,
+          vipOnly: giveaway.vip_only,
         }),
       );
     } catch {

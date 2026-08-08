@@ -1,63 +1,75 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { getGuildConfig } from '../../db/index.js';
 import { COLORS } from '../../lib/config.js';
+import { parseJsonColumn } from '../../lib/jsonColumn.js';
 
 export const data = new SlashCommandBuilder()
   .setName('aide')
-  .setDescription('Afficher les commandes du CarréBot');
+  .setDescription('Guide du serveur et des commandes');
 
 export async function execute(interaction) {
-  const isAdmin = interaction.memberPermissions?.has('ManageGuild');
-
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.primary)
-    .setTitle('🎮 CarréBot — Commandes')
-    .addFields({
-      name: '👥 Membres',
-      value:
-        '`/lfg` — Chercher des mates pour jouer\n' +
-        '`/profil` — Ta fiche : rangs, arrivée, activité\n' +
-        '`/stats` — Répartition des rangs du serveur\n' +
-        '`/tournoi liste` — Voir les tournois ouverts\n' +
-        '`/aide` — Afficher ce message\n\n' +
-        '🎭 Choisis ton rang CS2 dans **#🎭-roles**',
-    });
-
-  if (isAdmin) {
-    embed.addFields(
-      {
-        name: '⚙️ Configuration',
-        value:
-          '`/setup` — **Crée tout le serveur** (rôles, catégories, salons, panneau)\n' +
-          '`/config voir` — Voir la configuration\n' +
-          '`/config salons` · `roles` — Réaffecter salons et rôles\n' +
-          '`/config règlement` — Modifier le règlement\n' +
-          '`/config antiraid` — Régler la protection\n' +
-          '`/config panneau` — Republier le panneau',
-      },
-      {
-        name: '🛡️ Protection',
-        value:
-          '`/lockdown on` / `off` — Mode urgence\n' +
-          '`/lockdown salons` — Verrouiller l\'écriture\n' +
-          '`/lockdown statut` — État de la protection',
-      },
-      {
-        name: '🔨 Modération',
-        value:
-          '`/mod warn` · `/mod warns` · `/mod unwarn`\n' +
-          '`/mod mute` · `/mod unmute`\n' +
-          '`/mod kick` · `/mod ban` · `/mod purge`',
-      },
-      {
-        name: '🏆 Événements',
-        value:
-          '`/tournoi créer` · `/tournoi participants` · `/tournoi fermer`\n' +
-          '`/giveaway lancer` · `/giveaway terminer` · `/giveaway relancer`',
-      },
-    );
-  }
-
-  embed.setFooter({ text: 'CarréBot — communauté gaming' });
+  const cfg = await getGuildConfig(interaction.guild.id);
+  const embed = buildHelpEmbed(interaction.guild, cfg);
 
   return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+}
+
+/**
+ * Guide des membres, publié aussi en permanence dans #👋-bienvenue.
+ *
+ * Volontairement limité aux commandes des membres : les outils du staff
+ * n'ont rien à faire dans un guide destiné à tout le serveur.
+ */
+export function buildHelpEmbed(guild, cfg) {
+  const channels = parseJsonColumn(cfg?.channel_ids);
+  const ref = (key, fallback) => (channels[key] ? `<#${channels[key]}>` : `**${fallback}**`);
+
+  return new EmbedBuilder()
+    .setColor(COLORS.primary)
+    .setTitle('🎮 Bienvenue sur le serveur !')
+    .setDescription(
+      'Voici tout ce qu\'il faut savoir pour bien démarrer.',
+    )
+    .setThumbnail(guild.iconURL({ size: 256 }))
+    .addFields(
+      {
+        name: '🚀 Pour commencer',
+        value:
+          `**1.** Choisis ton rang CS2 dans ${ref('roles', '#🎭-roles')}\n` +
+          `**2.** Présente-toi et trouve des mates\n` +
+          `**3.** Utilise les commandes dans ${ref('commands', '#🤖-commandes')}`,
+      },
+      {
+        name: '🎯 Jouer ensemble',
+        value:
+          '`/recherche` — Publie une annonce pour trouver des coéquipiers\n' +
+          '> Choisis le mode, ton rang et le nombre de places.\n' +
+          '> Les intéressés cliquent sur **Rejoindre**, tu reçois un MP.',
+      },
+      {
+        name: '📊 Ta progression',
+        value:
+          '`/profil` — Ta fiche : rangs, arrivée, activité\n' +
+          '`/xp` — Ton niveau et ta progression\n' +
+          '`/classement` — Les membres les plus actifs\n' +
+          '`/stats` — Répartition des rangs du serveur\n\n' +
+          '> Tu gagnes de l\'XP en discutant, en vocal et via `/recherche`.',
+      },
+      {
+        name: '🔊 Salons vocaux',
+        value:
+          'Rejoins **➕ Créer un salon** pour obtenir ton propre vocal.\n' +
+          `> Tu peux le renommer, limiter les places, le rendre privé…\n` +
+          `> Les boutons de gestion sont dans ${ref('commands', '#🤖-commandes')}.`,
+      },
+      {
+        name: '📌 À savoir',
+        value:
+          `> 💬 Dans ${ref('general', '#💬-general')} : GIF autorisés, images et liens non\n` +
+          `> 😂 Dans ${ref('memes', '#😂-memes')} : tout est permis\n` +
+          `> 🎬 Dans ${ref('clips', '#🎬-clips')} : vidéos et liens uniquement\n` +
+          `> 🏆 Tournois et giveaways dans ${ref('tournaments', '#🏆-tournois')}`,
+      },
+    )
+    .setFooter({ text: 'Une question ? Le staff est là pour t\'aider.' });
 }
