@@ -298,9 +298,10 @@ async function grantVerified(interaction, cfg) {
     .setDescription(
       'Tu as maintenant accès à l\'ensemble du serveur.\n\n' +
       `🎭 Choisis ton rang CS2 dans ${rolesChannel}\n` +
-      '🎮 `/lfg` — trouve des mates pour jouer\n' +
-      '🏆 `/tournoi` — consulte les tournois en cours\n' +
-      '👤 `/profil` — consulte ta fiche\n\n' +
+      '🎮 `/recherche` — trouve des mates pour jouer\n' +
+      '👤 `/profil` — ta fiche et ta progression\n' +
+      '📊 `/xp` — ton niveau · `/classement` — les plus actifs\n' +
+      '❓ `/aide` — le guide complet du serveur\n\n' +
       'Bon jeu !',
     );
 

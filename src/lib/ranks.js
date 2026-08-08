@@ -2,7 +2,7 @@
  * Rangs CS2 — source unique de vérité.
  *
  * Consommée par /setup (création et réconciliation des rôles), le menu de
- * sélection (handlers/ranks.js), /profil, /stats et /lfg. Toute évolution
+ * sélection (handlers/ranks.js), /profil, /stats et /recherche. Toute évolution
  * des paliers se fait ici, et nulle part ailleurs.
  *
  * Deux séries indépendantes : un membre peut porter un rang Premier ET un
@@ -129,7 +129,7 @@ export function rankKeyForRoleName(name) {
   return null;
 }
 
-/** Options de rang proposées par /lfg (limite Discord : 25 choix). */
+/** Options de rang proposées par /recherche (limite Discord : 25 choix). */
 export function lfgRankChoices() {
   return [
     ...ALL_RANKS.map((r) => ({ name: r.name, value: r.name })),

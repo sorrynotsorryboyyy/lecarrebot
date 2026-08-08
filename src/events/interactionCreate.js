@@ -22,6 +22,7 @@ import {
 } from '../handlers/panel.js';
 import { receiveStrat } from '../commands/admin/strat.js';
 import { handleProfileButton } from '../handlers/profilePanel.js';
+import { cancelReset, confirmStep1, confirmStep2 } from '../commands/admin/reset.js';
 import { closeLfg, joinLfg, leaveLfg } from '../handlers/lfg.js';
 import { joinTournament, leaveTournament } from '../handlers/tournoi.js';
 import { enterGiveaway } from '../handlers/giveaway.js';
@@ -147,6 +148,14 @@ async function runButton(interaction) {
   if (domain === 'profile') {
     return handleProfileButton(interaction, action);
   }
+
+  if (domain === 'reset') {
+    // showModal() ne peut pas suivre un defer : confirmStep1 répond
+    // directement par le formulaire de confirmation.
+    if (action === 'confirm') return confirmStep1(interaction);
+    if (action === 'cancel') return cancelReset(interaction);
+    return;
+  }
 }
 
 /**
@@ -203,6 +212,10 @@ async function runModal(interaction) {
 
   if (domain === 'strat' && action === 'submit') {
     return receiveStrat(interaction, arg);
+  }
+
+  if (domain === 'reset' && action === 'modal') {
+    return confirmStep2(interaction);
   }
 }
 

@@ -104,7 +104,7 @@ export const CATEGORIES = [
       {
         key: 'roles',
         name: '🎭-roles',
-        topic: 'Choisis ton rang CS2 et tes rôles avec les menus',
+        topic: 'Choisis ton rang CS2 (Premier/Faceit) et tes rôles avec les menus',
         access: 'members',
         readOnly: true,
       },
@@ -139,7 +139,7 @@ export const CATEGORIES = [
       {
         key: 'vote',
         name: '🗳️-vote',
-        topic: 'Vote pour le serveur et gagne des récompenses',
+        topic: 'Vote toutes les 2h pour soutenir le serveur et gagner des récompenses',
         readOnly: true,
       },
     ],
@@ -163,7 +163,7 @@ export const CATEGORIES = [
       {
         key: 'strats',
         name: '📊-strats-et-tips',
-        topic: 'Stratégies, line-ups et conseils publiés par le staff',
+        topic: 'Stratégies et line-ups CS2 publiés par le staff via /strat',
         readOnly: true,
       },
     ],
@@ -182,13 +182,13 @@ export const CATEGORIES = [
       {
         key: 'tournaments',
         name: '🏆-tournois',
-        topic: 'Les tournois de la communauté',
+        topic: 'Tournois de la communauté — inscris-toi avec le bouton sous l\'annonce',
         readOnly: true,
       },
       {
         key: 'giveaways',
         name: '🎁-giveaways',
-        topic: 'Participe aux giveaways',
+        topic: 'Giveaways — clique sur 🎉 pour participer, tirage automatique',
         readOnly: true,
       },
       { key: 'results', name: '📋-resultats', topic: 'Résultats des tournois', readOnly: true },
@@ -202,18 +202,18 @@ export const CATEGORIES = [
       {
         key: 'profile',
         name: '📇-profil',
-        topic: 'Consulte ton profil et ta progression',
+        topic: 'Ton profil et ta progression — boutons ci-dessous ou /profil',
         readOnly: true,
       },
       {
         key: 'commands',
         name: '🤖-commandes',
-        topic: 'Utilise les commandes du bot ici',
+        topic: 'Commandes du bot : /profil /xp /classement /recherche — et gestion de ton vocal',
       },
       {
         key: 'xp',
         name: '📊-xp',
-        topic: 'Montées de niveau et classement',
+        topic: 'Montées de niveau — /xp pour ta progression, /classement pour le top',
         readOnly: true,
       },
     ],
