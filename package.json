@@ -1,0 +1,21 @@
+{
+  "name": "carrebot",
+  "version": "1.0.0",
+  "description": "CarréBot — bot de communauté gaming (CS2/CSGO) : vérification captcha, règlement, anti-raid, LFG, tournois & giveaways.",
+  "main": "src/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
+  }
+}

@@ -1,0 +1,5 @@
+# @napi-rs/canvas embarque un binaire précompilé, mais Nixpacks doit fournir
+# les bibliothèques système contre lesquelles il est lié.
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-9_x"]
+aptPkgs = ["libfontconfig1", "fonts-dejavu-core"]
