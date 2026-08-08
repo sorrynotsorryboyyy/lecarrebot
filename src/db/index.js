@@ -11,17 +11,32 @@ dns.setDefaultResultOrder('verbatim');
 
 const url = config.databaseUrl ?? '';
 const isLocal = /localhost|127\.0\.0\.1/.test(url);
+const isPrivateHost = /\.railway\.internal/.test(url);
 
 /**
- * Le réseau privé Railway (*.railway.internal) est déjà isolé : PostgreSQL
- * n'y écoute pas en TLS, et forcer SSL provoque un échec de connexion.
- * SSL n'est utile que sur les hôtes publics (proxy.rlwy.net, etc.).
+ * Le réseau privé Railway (*.railway.internal) n'est joignable qu'entre
+ * services d'un MÊME projet. Quand la base vit dans un autre projet, ce
+ * hostname est irrésolvable : il faut l'URL publique.
+ *
+ * On bascule donc automatiquement sur DATABASE_PUBLIC_URL si elle est
+ * fournie et que DATABASE_URL pointe vers le réseau privé.
  */
-const isInternal = /\.railway\.internal/.test(url);
+const effectiveUrl = isPrivateHost && config.databasePublicUrl
+  ? config.databasePublicUrl
+  : config.databaseUrl;
+
+const usingPublicFallback = effectiveUrl !== config.databaseUrl;
+if (usingPublicFallback) {
+  log.info('DATABASE_URL pointe vers le réseau privé — bascule sur DATABASE_PUBLIC_URL');
+}
+
+// SSL est requis sur les hôtes publics Railway (proxy.rlwy.net), inutile sur
+// le réseau privé (déjà isolé, pas de TLS) et en local.
+const needsSsl = !isLocal && !/\.railway\.internal/.test(effectiveUrl);
 
 export const pool = new Pool({
-  connectionString: config.databaseUrl,
-  ssl: isLocal || isInternal ? false : { rejectUnauthorized: false },
+  connectionString: effectiveUrl,
+  ssl: needsSsl ? { rejectUnauthorized: false } : false,
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
@@ -55,6 +70,22 @@ export async function waitForDatabase({ retries = 10, baseDelayMs = 1000 } = {})
       return;
     } catch (err) {
       const transient = ['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN', 'ETIMEDOUT'];
+
+      // Un hostname privé qui ne résout pas n'est jamais transitoire : c'est
+      // une erreur de configuration. Inutile d'attendre 30s pour rien.
+      if (err.code === 'ENOTFOUND' && /\.railway\.internal/.test(err.hostname ?? '')) {
+        throw new Error(
+          `Le hostname privé « ${err.hostname} » est introuvable.\n\n` +
+          '  Le réseau privé Railway ne fonctionne qu\'entre services d\'un MÊME projet.\n' +
+          '  Si PostgreSQL est dans un autre projet, il faut l\'URL publique :\n\n' +
+          '    1. Service Postgres → onglet Variables → copie DATABASE_PUBLIC_URL\n' +
+          '       (host en .proxy.rlwy.net, avec un port à 5 chiffres)\n' +
+          '    2. Service du bot → Variables → colle-la dans DATABASE_URL\n\n' +
+          '  Autre option : déplacer les deux services dans le même projet.',
+          { cause: err },
+        );
+      }
+
       if (!transient.includes(err.code) || attempt === retries) throw err;
 
       // 1s, 2s, 4s… plafonné à 8s : ~30s d'attente cumulée sur 10 essais.

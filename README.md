@@ -193,7 +193,7 @@ pour éviter les lockdowns pendant une vague d'arrivées légitime.
 | Les commandes n'apparaissent pas | Commandes non enregistrées | `npm run deploy`, puis Ctrl+R dans Discord |
 | Le bot ne réagit pas aux arrivées | Intent manquant | Active **SERVER MEMBERS INTENT** dans le portail |
 | Tout est perdu après un redéploiement | Pas de base Postgres | Vérifie que `DATABASE_URL` pointe vers `${{Postgres.DATABASE_URL}}` |
-| `ENOTFOUND postgres.railway.internal` | DNS privé Railway pas encore prêt | Le bot réessaie ~30 s tout seul. Si l'erreur persiste, le service Postgres n'est pas dans **le même projet** Railway que le bot — le réseau privé ne traverse pas les projets. |
+| `ENOTFOUND postgres.railway.internal` | Postgres est dans **un autre projet** Railway | Le réseau privé `*.railway.internal` ne relie que des services d'un **même projet**. Mets l'**URL publique** (`DATABASE_PUBLIC_URL`, host en `.proxy.rlwy.net`) dans `DATABASE_URL`. Le bot active SSL automatiquement. |
 | Les nouveaux voient tous les salons | Salons non verrouillés | Relance `/setup auto`, ou ferme les salons à `@everyone` |
 
 ---

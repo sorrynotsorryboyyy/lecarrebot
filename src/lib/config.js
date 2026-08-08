@@ -10,6 +10,9 @@ export const config = {
   clientId: process.env.CLIENT_ID,
   guildId: process.env.GUILD_ID,
   databaseUrl: process.env.DATABASE_URL,
+  // URL publique de la base. Nécessaire quand le bot et PostgreSQL sont dans
+  // deux projets Railway distincts : le réseau privé ne les relie pas.
+  databasePublicUrl: process.env.DATABASE_PUBLIC_URL,
   logLevel: process.env.LOG_LEVEL || 'info',
 };
 
