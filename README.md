@@ -102,11 +102,37 @@ Elle construit l'intégralité du serveur :
 
 | | Détail |
 |---|---|
-| **3 rôles** | `👑 Admin`, `🛡️ Modérateur`, `✅ Vérifié` — avec les bonnes permissions et dans le bon ordre hiérarchique |
+| **3 rôles** | `👑 Admin`, `🛡️ Modérateur`, `🎮 Membre` — permissions et ordre hiérarchique corrects |
+| **11 rangs CS2** | 7 paliers Premier + 4 niveaux Faceit, auto-attribuables |
 | **6 catégories** | 🚪 Arrivée · 💬 Communauté · 🎮 Gaming · 🏆 Événements · 🔊 Vocaux · 🛡️ Staff |
-| **23 salons** | textuels et vocaux, chacun avec ses permissions |
-| **Permissions** | `@everyone` ne voit que `#🔐-verification` ; tout le reste exige le rôle Vérifié |
-| **Contenus** | règlement publié et panneau de vérification posé automatiquement |
+| **24 salons** | textuels et vocaux, chacun avec ses permissions |
+| **Permissions** | `@everyone` ne voit que `#🔐-verification` ; tout le reste exige le rôle Membre |
+| **Contenus** | règlement (avec bouton), panneau de vérification et menus de rangs |
+
+### 🔁 Réutilisation de vos rôles existants
+
+`/setup` **adopte** vos rôles au lieu d'en créer des doublons. La comparaison
+ignore la casse, les emoji, les espaces et les tirets :
+
+`3K-6K` · `6K - 10K` · `🔫 20K +` → tous reconnus comme des rangs.
+
+Vos rôles **Fondateur** et **Amis** sont détectés, reçoivent l'accès aux
+salons membres, et ne sont **jamais** modifiés — ni couleur, ni permissions,
+ni position. Le rôle `✅ Vérifié` créé par une version précédente est
+renommé `🎮 Membre` **sur place**, sans que personne ne perde son accès.
+
+### 🧹 Auto-réparation
+
+À chaque exécution, `/setup` :
+
+- **détecte les références fantômes** (salon ou rôle supprimé mais toujours
+  enregistré) et nettoie la configuration ;
+- **répare les permissions dérivées** — un salon membres ayant perdu son
+  `deny ViewChannel` redevient invisible aux non-vérifiés ;
+- **conserve** les permissions que vous avez ajoutées à la main ;
+- **ne touche pas** aux salons déplacés dans une autre catégorie.
+
+Un serveur sain ne déclenche aucune modification.
 
 `/setup` est **idempotent** : relancez-la autant de fois que voulu, elle
 réutilise ce qui existe déjà au lieu de créer des doublons. Pratique pour
@@ -146,8 +172,15 @@ dans `DATABASE_URL` (onglet Postgres → **Connect → Public Network**).
 | Commande | Rôle |
 |---|---|
 | `/lfg` | Chercher des mates (mode, rang, places, note) |
+| `/profil` | Fiche membre : rangs, arrivée, activité LFG |
+| `/stats` | Répartition des rangs de la communauté |
 | `/tournoi liste` | Voir les tournois ouverts |
 | `/aide` | Liste des commandes |
+
+Le choix du rang se fait dans **#🎭-roles**, via deux menus déroulants
+(Premier et Faceit). Les deux séries sont indépendantes : changer de cote
+Premier ne touche pas au niveau Faceit, et un seul rang par série est actif
+à la fois.
 
 ### Configuration — *Administrateur*
 | Commande | Rôle |

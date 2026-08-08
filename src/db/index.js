@@ -128,9 +128,13 @@ export async function initDatabase() {
       rules_channel_id    TEXT,
       logs_channel_id     TEXT,
       lfg_channel_id      TEXT,
+      welcome_channel_id  TEXT,
+      roles_channel_id    TEXT,
       unverified_role_id  TEXT,
       verified_role_id    TEXT,
       member_role_id      TEXT,
+      rank_roles          JSONB NOT NULL DEFAULT '{}'::jsonb,
+      rules_message_id    TEXT,
       rules_text          TEXT,
       antiraid_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
       antiraid_joins      INTEGER NOT NULL DEFAULT 5,
@@ -241,6 +245,11 @@ export async function initDatabase() {
   // ces ALTER, un serveur déployé avant l'ajout d'une colonne planterait.
   await query(`
     ALTER TABLE verifications ADD COLUMN IF NOT EXISTS captcha_ok BOOLEAN NOT NULL DEFAULT FALSE;
+
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS welcome_channel_id TEXT;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS roles_channel_id   TEXT;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS rules_message_id   TEXT;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS rank_roles JSONB NOT NULL DEFAULT '{}'::jsonb;
   `);
 
   log.info('Base de données initialisée');
@@ -264,7 +273,9 @@ export async function getGuildConfig(guildId) {
  */
 const UPDATABLE_FIELDS = new Set([
   'verify_channel_id', 'rules_channel_id', 'logs_channel_id', 'lfg_channel_id',
-  'unverified_role_id', 'verified_role_id', 'member_role_id', 'rules_text',
+  'welcome_channel_id', 'roles_channel_id',
+  'unverified_role_id', 'verified_role_id', 'member_role_id',
+  'rank_roles', 'rules_message_id', 'rules_text',
   'antiraid_enabled', 'antiraid_joins', 'antiraid_window', 'antiraid_min_age',
   'lockdown_active',
 ]);

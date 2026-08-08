@@ -15,8 +15,11 @@ export async function execute(interaction) {
       name: '👥 Membres',
       value:
         '`/lfg` — Chercher des mates pour jouer\n' +
+        '`/profil` — Ta fiche : rangs, arrivée, activité\n' +
+        '`/stats` — Répartition des rangs du serveur\n' +
         '`/tournoi liste` — Voir les tournois ouverts\n' +
-        '`/aide` — Afficher ce message',
+        '`/aide` — Afficher ce message\n\n' +
+        '🎭 Choisis ton rang CS2 dans **#🎭-roles**',
     });
 
   if (isAdmin) {

@@ -220,14 +220,37 @@ export async function acceptRules(interaction) {
     });
   }
 
+  const result = await grantVerified(interaction, cfg);
+
+  if (!result.ok) {
+    return interaction.update({ content: result.error, embeds: [], components: [] });
+  }
+
+  return interaction.update({ content: '', embeds: [result.embed], components: [] });
+}
+
+/**
+ * Attribue le rôle membre et finalise la vérification.
+ *
+ * Partagée par le parcours en deux étapes et le panneau permanent du
+ * règlement : deux chemins d'attribution divergents finiraient par ne plus
+ * appliquer les mêmes contrôles.
+ *
+ * Renvoie { ok: true, embed } ou { ok: false, error } — l'appelant décide
+ * comment répondre (update pour un message éphémère, reply pour un bouton
+ * de salon public).
+ */
+async function grantVerified(interaction, cfg) {
+  const { guild, user, member } = interaction;
+
   if (!cfg.verified_role_id) {
-    log.warn(`Aucun rôle vérifié configuré sur ${guild.name} (${guild.id})`);
-    return interaction.update({
-      content:
+    log.warn(`Aucun rôle membre configuré sur ${guild.name} (${guild.id})`);
+    return {
+      ok: false,
+      error:
         '⚠️ La vérification est réussie, mais aucun rôle n\'est configuré sur ce serveur.\n' +
-        'Préviens un administrateur (`/setup roles`).',
-      embeds: [], components: [],
-    });
+        'Préviens un administrateur (`/setup`).',
+    };
   }
 
   try {
@@ -236,19 +259,22 @@ export async function acceptRules(interaction) {
       await member.roles.remove(cfg.unverified_role_id, 'Vérification réussie');
     }
   } catch (err) {
-    log.error('Attribution du rôle vérifié impossible', err);
-    return interaction.update({
-      content:
+    log.error('Attribution du rôle membre impossible', err);
+    return {
+      ok: false,
+      error:
         '⚠️ Impossible de t\'attribuer le rôle. Le bot manque probablement de permissions ' +
-        '(son rôle doit être **au-dessus** du rôle vérifié dans la hiérarchie).\n' +
+        '(son rôle doit être **au-dessus** du rôle membre dans la hiérarchie).\n' +
         'Préviens un administrateur.',
-      embeds: [], components: [],
-    });
+    };
   }
 
   await query(
-    `UPDATE verifications SET rules_ok = TRUE, verified_at = NOW()
-     WHERE guild_id = $1 AND user_id = $2`,
+    `INSERT INTO verifications (guild_id, user_id, answer, captcha_ok, rules_ok, verified_at)
+     VALUES ($1, $2, '', TRUE, TRUE, NOW())
+     ON CONFLICT (guild_id, user_id)
+     DO UPDATE SET rules_ok = TRUE,
+                   verified_at = COALESCE(verifications.verified_at, NOW())`,
     [guild.id, user.id],
   );
 
@@ -260,18 +286,138 @@ export async function acceptRules(interaction) {
 
   log.info(`${user.tag} vérifié sur ${guild.name}`);
 
+  // Non bloquant : un salon de bienvenue supprimé ne doit jamais faire
+  // échouer une vérification par ailleurs réussie.
+  sendWelcomeCard(guild, member, cfg).catch(() => {});
+
+  const rolesChannel = cfg.roles_channel_id ? `<#${cfg.roles_channel_id}>` : '`#🎭-roles`';
+
   const embed = new EmbedBuilder()
     .setColor(COLORS.success)
     .setTitle('🎉 Bienvenue dans la communauté !')
     .setDescription(
       'Tu as maintenant accès à l\'ensemble du serveur.\n\n' +
+      `🎭 Choisis ton rang CS2 dans ${rolesChannel}\n` +
       '🎮 `/lfg` — trouve des mates pour jouer\n' +
       '🏆 `/tournoi` — consulte les tournois en cours\n' +
-      '🎁 Participe aux giveaways\n\n' +
+      '👤 `/profil` — consulte ta fiche\n\n' +
       'Bon jeu !',
     );
 
-  return interaction.update({ content: '', embeds: [embed], components: [] });
+  return { ok: true, embed };
+}
+
+/**
+ * Carte de bienvenue publiée dans #👋-bienvenue au moment de la
+ * vérification, et non à l'arrivée : le salon est réservé aux membres
+ * vérifiés, un message posté plus tôt serait invisible de l'intéressé.
+ */
+async function sendWelcomeCard(guild, member, cfg) {
+  if (!cfg.welcome_channel_id) return;
+
+  const channel = await guild.channels.fetch(cfg.welcome_channel_id).catch(() => null);
+  if (!channel?.isTextBased()) return;
+
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.success)
+    .setTitle('👋 Un nouveau membre nous rejoint !')
+    .setDescription(`Bienvenue ${member} sur **${guild.name}** !`)
+    .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+    .addFields(
+      { name: 'Membre n°', value: `${guild.memberCount}`, inline: true },
+      {
+        name: 'Compte créé',
+        value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`,
+        inline: true,
+      },
+    )
+    .setFooter({ text: 'Pense à choisir ton rang dans #🎭-roles' })
+    .setTimestamp();
+
+  await channel.send({ content: `${member}`, embeds: [embed] }).catch(() => {});
+}
+
+/**
+ * Panneau permanent du règlement, publié dans #📜-reglement.
+ *
+ * Complète — sans remplacer — l'étape 2 du parcours de vérification :
+ * permet de relire le règlement, et à un membre arrivé avant l'installation
+ * du bot de l'accepter après coup.
+ */
+export function buildRulesPanel(cfg) {
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.primary)
+    .setTitle('📜 Règlement du serveur')
+    .setDescription(cfg?.rules_text || DEFAULT_RULES)
+    .setFooter({ text: 'Le non-respect du règlement peut entraîner une sanction.' });
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('rules:accept:panel')
+      .setLabel('J\'accepte le règlement')
+      .setEmoji('✅')
+      .setStyle(ButtonStyle.Success),
+  );
+
+  return { embeds: [embed], components: [row] };
+}
+
+/**
+ * Acceptation depuis le panneau permanent.
+ *
+ * Ce bouton se trouve dans un salon public : il ne doit JAMAIS accorder
+ * l'accès à qui n'a pas passé le captcha, sans quoi il constituerait une
+ * porte dérobée annulant toute la protection anti-raid.
+ */
+export async function acceptRulesFromPanel(interaction) {
+  const { guild, user, member } = interaction;
+  const cfg = await getGuildConfig(guild.id);
+
+  // Cas 1 — déjà membre : on enregistre l'acceptation, sans rien refaire.
+  if (cfg.verified_role_id && member.roles.cache.has(cfg.verified_role_id)) {
+    await query(
+      `INSERT INTO verifications (guild_id, user_id, answer, captcha_ok, rules_ok, verified_at)
+       VALUES ($1, $2, '', TRUE, TRUE, NOW())
+       ON CONFLICT (guild_id, user_id)
+       DO UPDATE SET rules_ok = TRUE,
+                     verified_at = COALESCE(verifications.verified_at, NOW())`,
+      [guild.id, user.id],
+    );
+
+    return interaction.reply({
+      content: '✅ Règlement accepté — merci ! Tu as déjà accès au serveur.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const { rows } = await query(
+    'SELECT captcha_ok FROM verifications WHERE guild_id = $1 AND user_id = $2',
+    [guild.id, user.id],
+  );
+
+  // Cas 2 — captcha non passé : on renvoie vers le parcours complet.
+  if (!rows[0]?.captcha_ok) {
+    const target = cfg.verify_channel_id
+      ? `<#${cfg.verify_channel_id}>`
+      : 'le salon de vérification';
+
+    return interaction.reply({
+      content:
+        '📜 Merci d\'avoir lu le règlement !\n\n' +
+        `Il te reste le **défi anti-bot** à passer pour débloquer l'accès : rendez-vous dans ${target}.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  // Cas 3 — captcha réussi mais règlement jamais accepté (parcours
+  // interrompu, message éphémère perdu) : on finalise ici.
+  const result = await grantVerified(interaction, cfg);
+
+  return interaction.reply({
+    content: result.ok ? '' : result.error,
+    embeds: result.ok ? [result.embed] : [],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 /** Étape 2 (suite) — refus. */

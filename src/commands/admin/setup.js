@@ -7,15 +7,19 @@ import {
 import { getGuildConfig, updateGuildConfig } from '../../db/index.js';
 import { COLORS } from '../../lib/config.js';
 import { log } from '../../lib/logger.js';
-import { buildVerifyPanel, DEFAULT_RULES } from '../../handlers/verification.js';
+import { buildRulesPanel, buildVerifyPanel } from '../../handlers/verification.js';
 import {
   CATEGORIES,
   CHANNEL_CONFIG_KEYS,
   CHANNEL_INTROS,
+  PROTECTED_ROLES,
   ROLES,
   buildOverwrites,
   channelType,
+  permName,
 } from '../../lib/blueprint.js';
+import { ALL_RANKS, normalizeRankName, rankByKey, rankKeyForRoleName } from '../../lib/ranks.js';
+import { buildRankPanel } from '../../handlers/ranks.js';
 
 /**
  * /setup — construit l'intégralité du serveur en une seule commande.
@@ -52,21 +56,42 @@ export async function execute(interaction) {
     }
   }
 
-  const report = { roles: [], categories: [], channels: [], locked: 0, warnings: [] };
-  const cfg = await getGuildConfig(guild.id);
+  const report = {
+    roles: [], ranks: [], categories: [], channels: [],
+    locked: 0, repaired: 0, ghosts: [], warnings: [],
+  };
   const patch = {};
 
   try {
-    // ─── 1. Rôles ────────────────────────────────────────────────
+    // ─── 0. Réchauffement du cache ───────────────────────────────
+    // Sans ces fetch, le cache peut être partiel et /setup prendrait des
+    // salons parfaitement vivants pour des fantômes — puis les recréerait
+    // en double. Toutes les recherches par nom ci-dessous en dépendent.
+    await guild.channels.fetch();
+    await guild.roles.fetch();
+
+    const cfg = await getGuildConfig(guild.id);
+
+    // ─── 1. Diagnostic des références obsolètes ──────────────────
+    // On efface les IDs morts AVANT la résolution : un salon renommé sera
+    // alors retrouvé par son nom au lieu d'être recréé en double.
+    const ghosts = diagnose(guild, cfg);
+    applyGhostCleanup(ghosts, cfg, patch, report);
+
+    // ─── 2. Rôles structurels ────────────────────────────────────
     const roleIds = await ensureRoles(guild, cfg, report);
     patch.verified_role_id = roleIds.verified;
 
-    // La suite dépend du rôle vérifié : sans lui, rien n'a de sens.
+    // La suite dépend du rôle membre : sans lui, rien n'a de sens.
     if (!roleIds.verified) {
       return interaction.editReply(
-        '❌ Impossible de créer ou retrouver le rôle vérifié. Vérifie mes permissions.',
+        '❌ Impossible de créer ou retrouver le rôle membre. Vérifie mes permissions.',
       );
     }
+
+    // ─── 3. Rangs CS2 : adoption sans doublon ────────────────────
+    const rankRoles = await ensureRankRoles(guild, cfg, roleIds, report);
+    patch.rank_roles = JSON.stringify(rankRoles);
 
     const ids = {
       everyone: guild.roles.everyone.id,
@@ -74,15 +99,16 @@ export async function execute(interaction) {
       moderator: roleIds.moderator,
       admin: roleIds.admin,
       bot: me.id,
+      protectedRoles: findProtectedRoles(guild, report),
     };
 
-    // ─── 2. Catégories et salons ─────────────────────────────────
+    // ─── 4. Catégories et salons ─────────────────────────────────
     const created = await ensureStructure(guild, cfg, ids, report);
     for (const [key, column] of Object.entries(CHANNEL_CONFIG_KEYS)) {
       if (created[key]) patch[column] = created[key];
     }
 
-    // ─── 3. Salons préexistants ──────────────────────────────────
+    // ─── 5. Salons préexistants ──────────────────────────────────
     // Sans cette étape, la vérification serait décorative : un arrivant
     // verrait déjà tout ce qui existait avant le setup.
     if (lockExisting) {
@@ -91,12 +117,14 @@ export async function execute(interaction) {
 
     await updateGuildConfig(guild.id, patch);
 
-    // ─── 4. Contenus : règlement, panneau, présentations ─────────
-    await publishRules(guild, created, cfg, report);
+    // ─── 6. Contenus : règlement, panneaux, présentations ────────
+    const freshCfg = await getGuildConfig(guild.id);
+    await publishRules(guild, created, freshCfg, report);
     await publishPanel(guild, created, report);
+    await publishRankPanel(guild, created, freshCfg, report);
     await publishIntros(guild, created, report);
 
-    // ─── 5. Hiérarchie ───────────────────────────────────────────
+    // ─── 7. Hiérarchie ───────────────────────────────────────────
     checkHierarchy(guild, me, roleIds, report);
   } catch (err) {
     log.error('Échec du setup', err);
@@ -107,6 +135,211 @@ export async function execute(interaction) {
   }
 
   return interaction.editReply({ embeds: [buildReport(report)] });
+}
+
+/**
+ * Inventorie l'écart entre la configuration enregistrée et la réalité du
+ * serveur. Aucune écriture : cette passe ne fait que constater.
+ *
+ * Un « fantôme » est un ID mémorisé en base dont l'objet n'existe plus.
+ * Le cas le plus dangereux est `verified_role_id` : laissé en place, il
+ * ferait échouer chaque vérification (`roles.add` sur un ID mort).
+ */
+function diagnose(guild, cfg) {
+  const ghosts = { channels: [], roles: [], ranks: [] };
+
+  for (const [key, column] of Object.entries(CHANNEL_CONFIG_KEYS)) {
+    const id = cfg[column];
+    if (id && !guild.channels.cache.has(id)) {
+      ghosts.channels.push({ key, column, id });
+    }
+  }
+
+  for (const column of ['verified_role_id', 'unverified_role_id']) {
+    const id = cfg[column];
+    if (id && !guild.roles.cache.has(id)) {
+      ghosts.roles.push({ column, id });
+    }
+  }
+
+  const rankMap = parseRankRoles(cfg.rank_roles);
+  for (const [key, id] of Object.entries(rankMap)) {
+    if (!guild.roles.cache.has(id)) ghosts.ranks.push({ key, id });
+  }
+
+  return ghosts;
+}
+
+/**
+ * Efface les références mortes pour que la résolution par nom reprenne la
+ * main. On ne recrée jamais directement depuis le diagnostic : un salon
+ * peut avoir été simplement renommé, auquel cas il sera retrouvé.
+ */
+function applyGhostCleanup(ghosts, cfg, patch, report) {
+  for (const { key, column } of ghosts.channels) {
+    cfg[column] = null;
+    patch[column] = null;
+    report.ghosts.push(`Salon **${key}** (supprimé) — référence nettoyée`);
+  }
+
+  for (const { column } of ghosts.roles) {
+    cfg[column] = null;
+    patch[column] = null;
+    const label = column === 'verified_role_id' ? 'membre' : 'non-vérifié';
+    report.ghosts.push(`Rôle **${label}** (supprimé) — référence nettoyée`);
+  }
+
+  if (ghosts.ranks.length > 0) {
+    const map = parseRankRoles(cfg.rank_roles);
+    for (const { key } of ghosts.ranks) {
+      delete map[key];
+      const rank = rankByKey(key);
+      report.ghosts.push(`Rang **${rank?.name ?? key}** (supprimé) — référence nettoyée`);
+    }
+    cfg.rank_roles = map;
+  }
+}
+
+/**
+ * `rank_roles` arrive en objet depuis PostgreSQL (JSONB), mais peut être
+ * une chaîne si la colonne a été écrite en texte. On accepte les deux.
+ */
+function parseRankRoles(value) {
+  if (!value) return {};
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return { ...value };
+}
+
+/**
+ * Détecte les rôles vous appartenant (Fondateur, Amis) pour leur ouvrir les
+ * salons membres. Ils ne sont ni créés, ni renommés, ni modifiés.
+ */
+function findProtectedRoles(guild, report) {
+  const found = [];
+
+  for (const spec of PROTECTED_ROLES) {
+    const wanted = spec.names.map((n) => normalizeRankName(n));
+    const role = guild.roles.cache.find(
+      (r) => !r.managed && wanted.includes(normalizeRankName(r.name)),
+    );
+    if (role) {
+      found.push(role.id);
+      report.roles.push({ name: role.name, status: 'protégé' });
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Réconcilie les rangs CS2 avec les rôles déjà présents sur le serveur.
+ *
+ * Trois passes :
+ *   1. résolution sans création (ID mémorisé, puis nom normalisé) ;
+ *   2. création de ce qui manque réellement ;
+ *   3. repositionnement sous le rôle membre.
+ *
+ * La passe 3 est indispensable : `guild.roles.create` place chaque nouveau
+ * rôle au sommet de la portée du bot, ce qui placerait les rangs au-dessus
+ * d'Admin sans ce correctif.
+ */
+async function ensureRankRoles(guild, cfg, roleIds, report) {
+  const stored = parseRankRoles(cfg.rank_roles);
+  const resolved = {};
+  const claimed = new Set();
+  const missing = [];
+
+  // ─── Passe 1 : résolution ──────────────────────────────────────
+  for (const spec of ALL_RANKS) {
+    const knownId = stored[spec.key];
+    let role = knownId ? guild.roles.cache.get(knownId) : null;
+
+    if (role && !claimed.has(role.id)) {
+      resolved[spec.key] = role.id;
+      claimed.add(role.id);
+      report.ranks.push({ name: role.name, status: 'existant' });
+      continue;
+    }
+
+    // Correspondance tolérante : '3K-6K', '6K - 10K', '🔫 20K +' …
+    role = guild.roles.cache.find(
+      (r) => !r.managed
+        && r.id !== guild.roles.everyone.id
+        && !claimed.has(r.id)
+        && rankKeyForRoleName(r.name) === spec.key,
+    );
+
+    if (role) {
+      resolved[spec.key] = role.id;
+      claimed.add(role.id);
+      report.ranks.push({ name: role.name, status: 'adopté' });
+      continue;
+    }
+
+    missing.push(spec);
+  }
+
+  // ─── Passe 2 : création ────────────────────────────────────────
+  // Ordre inversé : chaque création se plaçant au sommet, créer du plus
+  // haut rang au plus bas laisse finalement le plus haut… en haut.
+  for (const spec of [...missing].reverse()) {
+    try {
+      const role = await guild.roles.create({
+        name: spec.name,
+        color: spec.color,
+        hoist: false,
+        mentionable: false,
+        permissions: [],
+        reason: 'CarréBot — rangs CS2',
+      });
+      resolved[spec.key] = role.id;
+      report.ranks.push({ name: spec.name, status: 'créé' });
+    } catch (err) {
+      report.warnings.push(`Rang **${spec.name}** non créé : ${err.message}`);
+    }
+  }
+
+  // ─── Passe 3 : repositionnement sous le rôle membre ────────────
+  if (missing.length > 0 && roleIds.verified) {
+    await repositionRanks(guild, roleIds.verified, resolved, report);
+  }
+
+  return resolved;
+}
+
+/**
+ * Redescend les rangs juste sous le rôle membre, en un seul appel API.
+ * Purement cosmétique : un échec ne doit jamais interrompre /setup.
+ */
+async function repositionRanks(guild, verifiedRoleId, resolved, report) {
+  try {
+    const base = guild.roles.cache.get(verifiedRoleId)?.position;
+    if (base == null) return;
+
+    const positions = ALL_RANKS
+      .map((spec, i) => ({ role: resolved[spec.key], position: base - 1 - i }))
+      .filter((p) => p.role && p.position > 0);
+
+    // Serveur avec très peu de rôles : pas assez de place sous le rôle
+    // membre pour ranger toute la série. On préfère ne rien faire.
+    if (positions.length !== ALL_RANKS.length) {
+      report.warnings.push(
+        'Rangs non repositionnés : pas assez de place sous le rôle membre. ' +
+        'Réordonne-les à la main si l\'ordre importe.',
+      );
+      return;
+    }
+
+    await guild.roles.setPositions(positions);
+  } catch (err) {
+    report.warnings.push(`Repositionnement des rangs impossible : ${err.message}`);
+  }
 }
 
 /** Crée les rôles manquants et renvoie leurs IDs par clé. */
@@ -120,11 +353,34 @@ async function ensureRoles(guild, cfg, report) {
     const knownId = spec.key === 'verified' ? cfg.verified_role_id : null;
 
     let role = knownId ? guild.roles.cache.get(knownId) : null;
-    if (!role) role = guild.roles.cache.find((r) => r.name === spec.name);
+
+    // Correspondance tolérante (casse, emoji, espaces) et sur les anciens
+    // noms : un rôle « Admin » ou « ✅ Vérifié » déjà présent est adopté
+    // plutôt que dupliqué.
+    if (!role) {
+      const wanted = [spec.name, ...(spec.aliases ?? [])].map((n) => normalizeRankName(n));
+      role = guild.roles.cache.find(
+        (r) => !r.managed && wanted.includes(normalizeRankName(r.name)),
+      );
+    }
 
     if (role) {
       ids[spec.key] = role.id;
-      report.roles.push({ name: spec.name, status: 'existant' });
+
+      // Le rôle d'accès a été renommé « 🎮 Membre » : on renomme sur place
+      // pour préserver les attributions existantes — recréer un rôle ferait
+      // perdre leur accès à tous les membres déjà vérifiés.
+      if (role.name !== spec.name && role.editable) {
+        try {
+          await role.setName(spec.name, 'CarréBot — harmonisation du nom');
+          report.roles.push({ name: `${spec.name} (renommé)`, status: 'existant' });
+          continue;
+        } catch {
+          // Renommage refusé : le rôle reste utilisable tel quel.
+        }
+      }
+
+      report.roles.push({ name: role.name, status: 'existant' });
       continue;
     }
 
@@ -182,6 +438,14 @@ async function ensureStructure(guild, cfg, ids, report) {
       if (channel) {
         created[spec.key] = channel.id;
         report.channels.push({ name: spec.name, status: 'existant' });
+
+        // Répare les permissions qui auraient dérivé. Cas critique : un
+        // salon membres ayant perdu son `deny ViewChannel` sur @everyone
+        // est lisible par les non-vérifiés.
+        const fixed = await repairOverwrites(
+          channel, spec.access ?? cat.access, ids, spec, report,
+        );
+        report.repaired += fixed > 0 ? 1 : 0;
         continue;
       }
 
@@ -208,6 +472,80 @@ async function ensureStructure(guild, cfg, ids, report) {
   }
 
   return created;
+}
+
+/**
+ * Réapplique les permissions du plan sur un salon existant.
+ *
+ * On modifie entrée par entrée avec `edit()`, jamais `set()` : `set()`
+ * remplacerait la totalité des permissions du salon et effacerait les
+ * réglages ajoutés à la main (accès invité, bot tiers, rôle VIP…).
+ *
+ * Un serveur sain ne déclenche aucun appel API : la comparaison préalable
+ * court-circuite tout ce qui est déjà correct.
+ */
+async function repairOverwrites(channel, access, ids, spec, report) {
+  const wanted = buildOverwrites(access, ids, { readOnly: spec?.readOnly });
+  let repaired = 0;
+
+  for (const entry of wanted) {
+    if (!entry.id) continue;
+
+    const current = channel.permissionOverwrites?.cache?.get(entry.id);
+    const allowOk = (entry.allow ?? []).every((p) => current?.allow?.has(p));
+    const denyOk = (entry.deny ?? []).every((p) => current?.deny?.has(p));
+    if (current && allowOk && denyOk) continue;
+
+    try {
+      await channel.permissionOverwrites.edit(
+        entry.id,
+        {
+          ...Object.fromEntries((entry.allow ?? []).map((p) => [permName(p), true])),
+          ...Object.fromEntries((entry.deny ?? []).map((p) => [permName(p), false])),
+        },
+        { reason: 'CarréBot — réparation des permissions' },
+      );
+      repaired++;
+    } catch (err) {
+      report.warnings.push(`Permissions de **${channel.name}** non réparées : ${err.message}`);
+      break;
+    }
+  }
+
+  return repaired;
+}
+
+/** Publie le panneau de choix des rangs dans le salon 🎭-roles. */
+async function publishRankPanel(guild, created, cfg, report) {
+  const channelId = created.roles;
+  if (!channelId) return;
+
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    const existing = await channel.messages.fetch({ limit: 10 });
+
+    const panel = buildRankPanel(cfg);
+    // Aucun rang résolu : inutile de poster un panneau vide.
+    if (panel.components.length === 0) return;
+
+    // Dédoublonnage par composant : /setup est relançable, elle ne doit
+    // pas empiler les panneaux.
+    const already = existing.find((m) =>
+      m.author.id === guild.client.user.id
+      && m.components?.[0]?.components?.[0]?.customId?.startsWith('ranks:'),
+    );
+
+    if (already) {
+      // Le panneau existe : on le met à jour plutôt que d'en poster un
+      // second, pour refléter les rangs nouvellement créés.
+      await already.edit(panel);
+      return;
+    }
+
+    await channel.send(panel);
+  } catch (err) {
+    report.warnings.push(`Panneau des rangs non publié : ${err.message}`);
+  }
 }
 
 /** Masque aux non-vérifiés les salons qui existaient avant le setup. */
@@ -242,19 +580,27 @@ async function publishRules(guild, created, cfg, report) {
 
   try {
     const channel = await guild.channels.fetch(channelId);
-    const existing = await channel.messages.fetch({ limit: 5 });
+    const existing = await channel.messages.fetch({ limit: 10 });
 
-    // On ne republie pas si le salon contient déjà quelque chose : l'admin
-    // a pu personnaliser son règlement à la main.
+    const panel = buildRulesPanel(cfg);
+
+    // Dédoublonnage par composant : /setup est relançable, elle ne doit
+    // jamais empiler les panneaux.
+    const already = existing.find((m) =>
+      m.author.id === guild.client.user.id
+      && m.components?.[0]?.components?.[0]?.customId === 'rules:accept:panel',
+    );
+
+    if (already) {
+      // Reflète un règlement modifié via /config règlement.
+      await already.edit(panel);
+      return;
+    }
+
+    // Salon déjà rempli à la main : on n'écrase rien.
     if (existing.size > 0) return;
 
-    const embed = new EmbedBuilder()
-      .setColor(COLORS.primary)
-      .setTitle('📜 Règlement du serveur')
-      .setDescription(cfg.rules_text || DEFAULT_RULES)
-      .setFooter({ text: 'Le non-respect du règlement peut entraîner une sanction.' });
-
-    await channel.send({ embeds: [embed] });
+    await channel.send(panel);
   } catch (err) {
     report.warnings.push(`Règlement non publié : ${err.message}`);
   }
@@ -341,8 +687,18 @@ function buildReport(report) {
   const c = summarize(report.categories);
   const ch = summarize(report.channels);
 
+  const adopted = report.ranks.filter((x) => x.status === 'adopté').length;
+  const rankCreated = report.ranks.filter((x) => x.status === 'créé').length;
+  const rankKept = report.ranks.length - adopted - rankCreated;
+
   const line = (label, s) =>
     `${label} : **${s.created}** créé(s)` + (s.existing ? `, ${s.existing} réutilisé(s)` : '');
+
+  const rankLine = report.ranks.length === 0
+    ? null
+    : `🏅 Rangs CS2 : **${rankCreated}** créé(s)`
+      + (adopted ? `, **${adopted}** adopté(s)` : '')
+      + (rankKept ? `, ${rankKept} réutilisé(s)` : '');
 
   const embed = new EmbedBuilder()
     .setColor(report.warnings.length > 0 ? COLORS.warning : COLORS.success)
@@ -350,19 +706,32 @@ function buildReport(report) {
     .setDescription(
       [
         line('🎭 Rôles', r),
+        rankLine,
         line('📂 Catégories', c),
         line('📁 Salons', ch),
+        report.repaired > 0
+          ? `🔧 Permissions réparées : **${report.repaired}** salon(s)`
+          : null,
         report.locked > 0
           ? `🔒 Salons préexistants masqués aux non-vérifiés : **${report.locked}**`
           : null,
       ].filter(Boolean).join('\n'),
-    )
-    .addFields({
-      name: '▶️ Et maintenant ?',
-      value:
-        'Le serveur est prêt : la vérification est active et le panneau publié.\n' +
-        'Teste-la avec un second compte, ou ajuste les détails avec `/config`.',
+    );
+
+  if (report.ghosts.length > 0) {
+    embed.addFields({
+      name: `🧹 Références obsolètes nettoyées (${report.ghosts.length})`,
+      value: report.ghosts.slice(0, 8).map((g) => `• ${g}`).join('\n').slice(0, 1024),
     });
+  }
+
+  embed.addFields({
+    name: '▶️ Et maintenant ?',
+    value:
+      'Le serveur est prêt : la vérification est active et les panneaux publiés.\n' +
+      'Les membres choisissent leur rang dans **#🎭-roles**.\n' +
+      'Teste avec un second compte, ou ajuste les détails avec `/config`.',
+  });
 
   if (report.warnings.length > 0) {
     embed.addFields({

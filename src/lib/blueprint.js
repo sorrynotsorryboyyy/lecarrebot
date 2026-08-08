@@ -35,11 +35,26 @@ export const ROLES = [
   },
   {
     key: 'verified',
-    name: '✅ Vérifié',
+    name: '🎮 Membre',
     color: 0x2ecc71,
     hoist: false,
     permissions: [],
+    // Anciens noms du même rôle : /setup les adopte et les renomme au lieu
+    // d'en créer un nouveau, ce qui préserverait l'accès des membres déjà
+    // vérifiés. La clé `verified` reste inchangée en base.
+    aliases: ['✅ Vérifié', 'Vérifié', 'Verifie', 'Membre'],
   },
+];
+
+/**
+ * Rôles appartenant à l'administrateur du serveur, jamais créés ni modifiés
+ * par le bot. On se contente de les détecter pour leur donner accès aux
+ * salons membres — leur couleur, leurs permissions et leur position
+ * restent entièrement sous votre contrôle.
+ */
+export const PROTECTED_ROLES = [
+  { key: 'founder', names: ['Fondateur', 'Fondatrice', 'Founder', 'Owner'] },
+  { key: 'friends', names: ['Amis', 'Ami', 'Friends', 'Amis du serveur'] },
 ];
 
 /**
@@ -83,6 +98,13 @@ export const CATEGORIES = [
         name: '👋-bienvenue',
         topic: 'Les nouveaux membres sont accueillis ici',
         access: 'members',
+      },
+      {
+        key: 'roles',
+        name: '🎭-roles',
+        topic: 'Choisis ton rang CS2 avec les menus ci-dessous',
+        access: 'members',
+        readOnly: true,
       },
     ],
   },
@@ -173,6 +195,17 @@ export function buildOverwrites(access, ids, { readOnly = false } = {}) {
       allow: [P.ViewChannel, P.SendMessages, P.Connect, P.Speak],
     }));
 
+  // Fondateur, Amis… : rôles vous appartenant, détectés puis autorisés sur
+  // les salons membres. Ils sont traités comme des membres vérifiés, sans
+  // qu'aucune de leurs propriétés ne soit modifiée.
+  const protectedAllow = (ids.protectedRoles ?? [])
+    .filter(Boolean)
+    .map((id) => ({
+      id,
+      allow: [P.ViewChannel, P.Connect, P.Speak],
+      deny: readOnly ? [P.SendMessages] : [],
+    }));
+
   // Le bot doit toujours pouvoir écrire, y compris dans les salons en
   // lecture seule (logs, annonces, panneaux).
   const botAllow = ids.bot
@@ -214,7 +247,7 @@ export function buildOverwrites(access, ids, { readOnly = false } = {}) {
           allow: [P.ViewChannel, P.Connect, P.Speak],
           deny: denyWrite,
         },
-        ...staffAllow, ...botAllow,
+        ...protectedAllow, ...staffAllow, ...botAllow,
       ];
   }
 }
@@ -287,6 +320,9 @@ export const CHANNEL_INTROS = {
     footer: 'Seul le staff peut écrire ici.',
   },
 
+  // Note : le salon 🎭-roles reçoit un panneau interactif (publishRankPanel),
+  // pas une simple présentation — il n'a donc pas d'entrée ici.
+
   logs: {
     color: 0x95a5a6,
     title: '📋 Journal du CarréBot',
@@ -310,4 +346,20 @@ export const CHANNEL_CONFIG_KEYS = {
   rules: 'rules_channel_id',
   logs: 'logs_channel_id',
   lfg: 'lfg_channel_id',
+  welcome: 'welcome_channel_id',
+  roles: 'roles_channel_id',
 };
+
+/**
+ * Correspondance bit de permission → nom, nécessaire à la réparation :
+ * `permissionOverwrites.edit()` attend un objet { NomDePermission: booléen },
+ * alors que `buildOverwrites` produit des tableaux de bits.
+ *
+ * Les valeurs de PermissionFlagsBits sont des BigInt ; les clés de Map sont
+ * comparées par valeur, la correspondance est donc exacte.
+ */
+const PERM_NAMES = new Map(Object.entries(P).map(([name, bit]) => [bit, name]));
+
+export function permName(bit) {
+  return PERM_NAMES.get(bit);
+}

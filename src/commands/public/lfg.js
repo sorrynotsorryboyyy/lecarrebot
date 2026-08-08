@@ -1,6 +1,7 @@
 import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { getGuildConfig, query } from '../../db/index.js';
 import { buildLfgMessage } from '../../lib/embeds.js';
+import { lfgRankChoices } from '../../lib/ranks.js';
 
 /** Modes de jeu CS2 proposés à l'autocomplétion. */
 const MODES = [
@@ -13,13 +14,10 @@ const MODES = [
   { name: 'Détente / Casual', value: 'Casual' },
 ];
 
-const RANKS = [
-  'Silver', 'Gold Nova', 'Master Guardian', 'Legendary Eagle',
-  'Supreme', 'Global Elite',
-  'Premier 5k-10k', 'Premier 10k-15k', 'Premier 15k-20k', 'Premier 20k+',
-  'Faceit 1-3', 'Faceit 4-6', 'Faceit 7-8', 'Faceit 9-10',
-  'Peu importe',
-];
+// Les rangs viennent de src/lib/ranks.js : une seule source de vérité,
+// partagée avec /setup, les menus, /profil et /stats. Les anciens rangs
+// CSGO (Silver, Nova, Global) n'existent plus depuis CS2 en 2023.
+const RANK_CHOICES = lfgRankChoices();
 
 export const data = new SlashCommandBuilder()
   .setName('lfg')
@@ -38,7 +36,7 @@ export const data = new SlashCommandBuilder()
   .addStringOption((o) =>
     o.setName('rang')
       .setDescription('Ton rang / le rang recherché')
-      .addChoices(...RANKS.map((r) => ({ name: r, value: r }))))
+      .addChoices(...RANK_CHOICES))
   .addStringOption((o) =>
     o.setName('note')
       .setDescription('Précision libre (micro obligatoire, chill, tryhard…)')

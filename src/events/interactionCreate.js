@@ -3,10 +3,12 @@ import { log } from '../lib/logger.js';
 import { getGuildConfig } from '../db/index.js';
 import {
   acceptRules,
+  acceptRulesFromPanel,
   declineRules,
   handleAnswer,
   startVerification,
 } from '../handlers/verification.js';
+import { setRank } from '../handlers/ranks.js';
 import { closeLfg, joinLfg, leaveLfg } from '../handlers/lfg.js';
 import { joinTournament, leaveTournament } from '../handlers/tournoi.js';
 import { enterGiveaway } from '../handlers/giveaway.js';
@@ -26,6 +28,7 @@ export async function execute(interaction) {
   try {
     if (interaction.isChatInputCommand()) return await runCommand(interaction);
     if (interaction.isButton()) return await runButton(interaction);
+    if (interaction.isStringSelectMenu()) return await runSelectMenu(interaction);
   } catch (err) {
     if (BENIGN_CODES.has(err.code)) {
       log.warn(
@@ -107,6 +110,30 @@ async function runButton(interaction) {
 
   if (domain === 'giveaway' && action === 'enter') {
     return enterGiveaway(interaction, Number(arg));
+  }
+
+  // Domaine distinct de `verify` : relire le règlement depuis le panneau
+  // permanent ne doit pas déclencher l'avertissement de lockdown.
+  if (domain === 'rules' && action === 'accept') {
+    return acceptRulesFromPanel(interaction);
+  }
+}
+
+/**
+ * Routeur des menus déroulants.
+ * Même convention de customId que les boutons : `domaine:action[:argument]`.
+ * La valeur choisie arrive dans `interaction.values`, jamais dans le customId.
+ */
+async function runSelectMenu(interaction) {
+  // Les handlers accèdent tous à `interaction.guild.id` : en MP, ils
+  // planteraient sur un accès à `null`.
+  if (!interaction.guild) return;
+
+  const [domain, action, arg] = interaction.customId.split(':');
+
+  if (domain === 'ranks' && action === 'set') {
+    const cfg = await getGuildConfig(interaction.guild.id);
+    return setRank(interaction, arg, cfg);
   }
 }
 
