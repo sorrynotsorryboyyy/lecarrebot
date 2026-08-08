@@ -1,19 +1,27 @@
+import dns from 'node:dns';
 import pg from 'pg';
 import { config } from '../lib/config.js';
 import { log } from '../lib/logger.js';
 
 const { Pool } = pg;
 
+// Le réseau privé Railway est exclusivement IPv6. Node privilégie IPv4 par
+// défaut depuis la v17, ce qui fait échouer la résolution de *.railway.internal.
+dns.setDefaultResultOrder('verbatim');
+
+const url = config.databaseUrl ?? '';
+const isLocal = /localhost|127\.0\.0\.1/.test(url);
+
 /**
- * Railway fournit DATABASE_URL avec SSL activé mais un certificat interne
- * non vérifiable par la chaîne système, d'où `rejectUnauthorized: false`.
- * En local (localhost), on désactive SSL entièrement.
+ * Le réseau privé Railway (*.railway.internal) est déjà isolé : PostgreSQL
+ * n'y écoute pas en TLS, et forcer SSL provoque un échec de connexion.
+ * SSL n'est utile que sur les hôtes publics (proxy.rlwy.net, etc.).
  */
-const isLocal = /localhost|127\.0\.0\.1/.test(config.databaseUrl ?? '');
+const isInternal = /\.railway\.internal/.test(url);
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,
-  ssl: isLocal ? false : { rejectUnauthorized: false },
+  ssl: isLocal || isInternal ? false : { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
@@ -28,6 +36,36 @@ pool.on('error', (err) => {
 /** Raccourci pour une requête simple. */
 export function query(text, params) {
   return pool.query(text, params);
+}
+
+/**
+ * Attend que PostgreSQL réponde, avec backoff exponentiel.
+ *
+ * Sur Railway, le DNS du réseau privé met quelques secondes à se propager
+ * après un déploiement : le conteneur du bot démarre souvent avant que
+ * `postgres.railway.internal` soit résolvable. Sans cette attente, le bot
+ * crashe, redémarre aussitôt, et boucle sans jamais laisser le DNS répondre.
+ */
+export async function waitForDatabase({ retries = 10, baseDelayMs = 1000 } = {}) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const client = await pool.connect();
+      client.release();
+      if (attempt > 1) log.info(`Base joignable après ${attempt} tentative(s)`);
+      return;
+    } catch (err) {
+      const transient = ['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN', 'ETIMEDOUT'];
+      if (!transient.includes(err.code) || attempt === retries) throw err;
+
+      // 1s, 2s, 4s… plafonné à 8s : ~30s d'attente cumulée sur 10 essais.
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), 8000);
+      log.warn(
+        `Base injoignable (${err.code}) — nouvelle tentative dans ${delay / 1000}s ` +
+        `[${attempt}/${retries}]`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
 }
 
 /** Exécute un ensemble de requêtes dans une transaction. */

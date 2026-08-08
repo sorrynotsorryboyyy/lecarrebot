@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { config, validateConfig } from './lib/config.js';
 import { log } from './lib/logger.js';
-import { initDatabase, pool } from './db/index.js';
+import { initDatabase, pool, waitForDatabase } from './db/index.js';
 
 validateConfig();
 
@@ -90,6 +90,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 async function main() {
+  await waitForDatabase();
   await initDatabase();
   await loadCommands();
   await loadEvents();
