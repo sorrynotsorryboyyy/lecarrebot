@@ -3,7 +3,6 @@ import { getGuildConfig } from '../db/index.js';
 import { CATEGORIES } from '../lib/blueprint.js';
 import { evaluateMessage } from '../lib/mediaPolicy.js';
 import { parseJsonColumn } from '../lib/jsonColumn.js';
-import { grantMessageXp } from '../handlers/xp.js';
 import { log } from '../lib/logger.js';
 
 export const name = Events.MessageCreate;
@@ -22,13 +21,7 @@ export async function execute(message) {
 
   try {
     const cfg = await getGuildConfig(message.guild.id);
-
-    // La modération passe avant l'XP : inutile de récompenser un message
-    // qui va être supprimé.
-    const removed = await enforceMediaPolicy(message, cfg);
-    if (removed) return;
-
-    await grantMessageXp(message, cfg);
+    await enforceMediaPolicy(message, cfg);
   } catch (err) {
     log.debug(`Traitement du message ${message.id} impossible : ${err.message}`);
   }

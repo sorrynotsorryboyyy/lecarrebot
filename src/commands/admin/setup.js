@@ -11,7 +11,7 @@ import {
 import { getGuildConfig, updateGuildConfig } from '../../db/index.js';
 import { COLORS } from '../../lib/config.js';
 import { log } from '../../lib/logger.js';
-import { buildRulesPanel, buildVerifyPanel } from '../../handlers/verification.js';
+import { buildVerifyPanel } from '../../handlers/verification.js';
 import {
   CATEGORIES,
   CHANNEL_CONFIG_KEYS,
@@ -23,11 +23,14 @@ import {
   channelType,
   permName,
 } from '../../lib/blueprint.js';
-import { ALL_RANKS, normalizeRankName, rankByKey, rankKeyForRoleName } from '../../lib/ranks.js';
+import {
+  ALL_RANKS, FACEIT, PREMIER,
+  normalizeRankName, rankByKey, rankKeyForRoleName,
+} from '../../lib/ranks.js';
 import { ALL_IDENTITY, identityKeyForRoleName } from '../../lib/identity.js';
 import { buildIdentityPanel, buildRankPanel } from '../../handlers/ranks.js';
 import { buildVoicePanel } from '../../handlers/tempVoice.js';
-import { buildProfilePanel } from '../../handlers/profilePanel.js';
+import { buildLfgPanel } from '../../handlers/lfgPanel.js';
 import { buildHelpEmbed } from '../public/aide.js';
 import { parseJsonColumn } from '../../lib/jsonColumn.js';
 
@@ -112,6 +115,11 @@ export async function execute(interaction) {
 
     if (roleIds.vip) patch.vip_role_id = roleIds.vip;
 
+    // Une fois les deux familles résolues, on range tout d'un bloc :
+    // rangs au-dessus de Membre (ils colorent le pseudo), identité en
+    // dessous. Purement cosmétique — un échec n'interrompt pas /setup.
+    await reorderAllRoles(guild, roleIds, rankRoles, identityRoles, report);
+
     const ids = {
       everyone: guild.roles.everyone.id,
       verified: roleIds.verified,
@@ -147,7 +155,6 @@ export async function execute(interaction) {
 
     // ─── 7. Contenus : règlement, panneaux, présentations ────────
     const freshCfg = await getGuildConfig(guild.id);
-    await publishRules(guild, created, freshCfg, report);
     await publishPanel(guild, created, report);
     await publishRankPanel(guild, created, freshCfg, report);
     await publishStaticPanels(guild, created, freshCfg, report);
@@ -335,11 +342,8 @@ async function ensureRankRoles(guild, cfg, roleIds, report) {
     }
   }
 
-  // ─── Passe 3 : repositionnement sous le rôle membre ────────────
-  if (missing.length > 0 && roleIds.verified) {
-    await repositionRanks(guild, roleIds.verified, resolved, report);
-  }
-
+  // Le repositionnement a lieu plus tard, dans reorderAllRoles() : il doit
+  // connaître les rangs ET les rôles d'identité pour les ranger d'un bloc.
   return resolved;
 }
 
@@ -347,28 +351,51 @@ async function ensureRankRoles(guild, cfg, roleIds, report) {
  * Redescend les rangs juste sous le rôle membre, en un seul appel API.
  * Purement cosmétique : un échec ne doit jamais interrompre /setup.
  */
-async function repositionRanks(guild, verifiedRoleId, resolved, report) {
+async function reorderAllRoles(guild, roleIds, rankRoles, identityRoles, report) {
   try {
-    const base = guild.roles.cache.get(verifiedRoleId)?.position;
-    if (base == null) return;
+    const member = guild.roles.cache.get(roleIds.verified);
+    if (!member) return;
 
-    const positions = ALL_RANKS
-      .map((spec, i) => ({ role: resolved[spec.key], position: base - 1 - i }))
-      .filter((p) => p.role && p.position > 0);
+    // Discord applique la couleur du rôle coloré le PLUS HAUT. En plaçant
+    // les rangs au-dessus du rôle Membre et l'identité en dessous, la
+    // couleur du pseudo vient toujours de la cote Premier.
+    //
+    // Ordre voulu, du plus haut au plus bas :
+    //   … staff … > rangs CS2 > 🎮 Membre > identité > @everyone
+    // Faceit d'abord, Premier ensuite : Premier se retrouve donc PLUS HAUT
+    // et c'est sa couleur qui colore le pseudo, comme voulu. À l'intérieur
+    // de chaque série, l'ordre du tableau va du plus bas au plus haut — on
+    // ne l'inverse pas, sinon un 1k-3k dominerait un 20k+.
+    const ranked = [...FACEIT, ...PREMIER]
+      .map((s) => rankRoles[s.key])
+      .filter(Boolean);
+    const identity = ALL_IDENTITY.map((s) => identityRoles[s.key]).filter(Boolean);
 
-    // Serveur avec très peu de rôles : pas assez de place sous le rôle
-    // membre pour ranger toute la série. On préfère ne rien faire.
-    if (positions.length !== ALL_RANKS.length) {
+    // On empile depuis le bas : position 1 = juste au-dessus de @everyone.
+    // Identité, puis Membre, puis les rangs par ordre croissant de cote.
+    // Les rôles de staff, plus hauts, ne sont pas touchés.
+    const ordered = [...identity, member.id, ...ranked];
+
+    const positions = ordered.map((id, i) => ({ role: id, position: i + 1 }));
+
+    // Le staff doit rester au-dessus de tout ce bloc : si la pile dépasse
+    // la position du rôle le plus bas du staff, on renonce plutôt que de
+    // bousculer la hiérarchie du serveur.
+    const staffFloor = [roleIds.admin, roleIds.moderator, roleIds.vip]
+      .map((id) => guild.roles.cache.get(id)?.position)
+      .filter((p) => p != null);
+
+    if (staffFloor.length > 0 && positions.length + 1 > Math.min(...staffFloor)) {
       report.warnings.push(
-        'Rangs non repositionnés : pas assez de place sous le rôle membre. ' +
-        'Réordonne-les à la main si l\'ordre importe.',
+        'Rôles non réordonnés : pas assez de place sous les rôles du staff. ' +
+        'Remonte le rôle du bot et relance `/setup`.',
       );
       return;
     }
 
     await guild.roles.setPositions(positions);
   } catch (err) {
-    report.warnings.push(`Repositionnement des rangs impossible : ${err.message}`);
+    report.warnings.push(`Réordonnancement des rôles impossible : ${err.message}`);
   }
 }
 
@@ -437,9 +464,10 @@ async function ensureIdentityRoles(guild, cfg, roleIds, report) {
 async function publishStaticPanels(guild, created, cfg, report) {
   const panels = [
     { key: 'roles', prefix: 'identity:', build: () => buildIdentityPanel(cfg) },
-    { key: 'commands', prefix: 'voice:', build: () => buildVoicePanel() },
-    { key: 'profile', prefix: 'profile:', build: () => buildProfilePanel() },
-    { key: 'vote', prefix: 'vote:', build: () => buildVotePanel() },
+    // Recherche et gestion vocale cohabitent : on cherche des mates et on
+    // règle son salon au même moment.
+    { key: 'lfg', prefix: 'lfgpanel:', build: () => buildLfgPanel() },
+    { key: 'lfg', prefix: 'voice:', build: () => buildVoicePanel() },
   ];
 
   for (const panel of panels) {
@@ -452,21 +480,6 @@ async function publishStaticPanels(guild, created, cfg, report) {
 
       const payload = panel.build();
       if (!payload || payload.components?.length === 0) continue;
-
-      // Le panneau de vote n'a qu'un bouton lien, sans customId : on le
-      // repère par son titre plutôt que par un composant.
-      if (panel.key === 'vote') {
-        const votePosted = existing.find((m) =>
-          m.author.id === guild.client.user.id
-          && m.embeds?.[0]?.title?.includes('Soutiens le serveur'),
-        );
-        if (votePosted) {
-          await votePosted.edit(payload);
-        } else {
-          await channel.send(payload);
-        }
-        continue;
-      }
 
       const already = existing.find((m) =>
         m.author.id === guild.client.user.id
@@ -513,35 +526,6 @@ async function publishGuide(guild, created, cfg, report) {
   } catch (err) {
     report.warnings.push(`Guide non publié : ${err.message}`);
   }
-}
-
-/** Panneau de vote — les récompenses sont attribuées à la main. */
-function buildVotePanel() {
-  const embed = new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle('🗳️ Soutiens le serveur')
-    .setDescription(
-      'Voter nous aide à grandir et à accueillir de nouveaux joueurs.\n\n' +
-      '**C\'est gratuit et ça prend 30 secondes.**\n' +
-      'Tu peux voter **une fois toutes les 2 heures**.\n\n' +
-      '🎁 **Récompenses**\n' +
-      '> • Remerciement du staff\n' +
-      '> • Participation aux giveaways spéciaux votants\n' +
-      '> • Ton nom cité dans les annonces mensuelles\n\n' +
-      '📸 Après avoir voté, poste une capture au staff pour recevoir ta récompense.',
-    )
-    .setFooter({ text: 'Merci pour ton soutien !' });
-
-  // Bouton lien : pas de customId, donc pas de routage à prévoir.
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setLabel('Voter maintenant')
-      .setEmoji('🗳️')
-      .setStyle(ButtonStyle.Link)
-      .setURL('https://top-serveurs.net/cs2'),
-  );
-
-  return { embeds: [embed], components: [row] };
 }
 
 /** Crée les rôles manquants et renvoie leurs IDs par clé. */
@@ -839,39 +823,6 @@ async function lockLegacyChannels(guild, ids, created, report) {
   return count;
 }
 
-/** Publie le règlement dans son salon, s'il est encore vide. */
-async function publishRules(guild, created, cfg, report) {
-  const channelId = created.rules;
-  if (!channelId) return;
-
-  try {
-    const channel = await guild.channels.fetch(channelId);
-    const existing = await channel.messages.fetch({ limit: 10 });
-
-    const panel = buildRulesPanel(cfg);
-
-    // Dédoublonnage par composant : /setup est relançable, elle ne doit
-    // jamais empiler les panneaux.
-    const already = existing.find((m) =>
-      m.author.id === guild.client.user.id
-      && m.components?.[0]?.components?.[0]?.customId === 'rules:accept:panel',
-    );
-
-    if (already) {
-      // Reflète un règlement modifié via /config règlement.
-      await already.edit(panel);
-      return;
-    }
-
-    // Salon déjà rempli à la main : on n'écrase rien.
-    if (existing.size > 0) return;
-
-    await channel.send(panel);
-  } catch (err) {
-    report.warnings.push(`Règlement non publié : ${err.message}`);
-  }
-}
-
 /** Publie le panneau de vérification, s'il n'y est pas déjà. */
 async function publishPanel(guild, created, report) {
   const channelId = created.verify;
@@ -1016,7 +967,7 @@ function buildReport(report) {
     value:
       'Le serveur est prêt : la vérification est active et les panneaux publiés.\n' +
       'Les membres choisissent leur rang dans **#🎭-roles**.\n' +
-      'Teste avec un second compte, ou ajuste les détails avec `/config`.',
+      'Teste avec un second compte pour vérifier le parcours d\'arrivée.',
   });
 
   if (report.warnings.length > 0) {

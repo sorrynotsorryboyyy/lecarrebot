@@ -12,12 +12,7 @@ import {
 } from 'discord.js';
 import { COLORS } from '../../lib/config.js';
 import { log } from '../../lib/logger.js';
-import {
-  checkResetPermissions,
-  isRoleProtected,
-  wipeData,
-  wipeGuild,
-} from '../../handlers/reset.js';
+import { checkResetPermissions, wipeData, wipeGuild } from '../../handlers/reset.js';
 
 /**
  * /reset — remise à zéro complète du serveur.
@@ -68,35 +63,31 @@ export async function execute(interaction) {
   // Inventaire réel avant confirmation : annoncer des chiffres concrets
   // vaut mieux qu'un avertissement générique.
   await guild.channels.fetch();
-  await guild.roles.fetch();
 
-  const me = guild.members.me;
   const channelCount = guild.channels.cache.size;
-  const roleCount = guild.roles.cache.filter((r) => !isRoleProtected(r, me)).size;
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.danger)
     .setTitle('⚠️ Remise à zéro du serveur')
     .setDescription(
       '**Cette action est IRRÉVERSIBLE.**\n' +
-      'Discord ne permet aucune restauration, et le support non plus.\n\n' +
-      '**Vont être définitivement supprimés :**',
+      'Discord ne permet aucune restauration, et le support non plus.',
     )
     .addFields(
       {
-        name: '📁 Salons et catégories',
-        value: `**${channelCount}** — avec **tout l'historique des messages**`,
-        inline: true,
+        name: '🗑️ Supprimés',
+        value: `**${channelCount}** salon(s) et catégorie(s), avec **tout l'historique des messages**`,
       },
       {
-        name: '🎭 Rôles',
-        value: `**${roleCount}** — dont Fondateur, Amis et les rangs`,
-        inline: true,
+        name: '✅ Conservés',
+        value:
+          '**Tous les rôles** — Fondateur, Amis, rangs, identité, VIP.\n' +
+          'Personne ne perd son rang : `/setup` les réadopte et les réordonne.',
       },
       {
         name: '💾 Données',
         value: wipeDb
-          ? '**Tout** : XP, vérifications, avertissements, tournois'
+          ? '**Effacées** : vérifications, avertissements, tournois, giveaways'
           : 'Conservées',
         inline: true,
       },
@@ -214,9 +205,9 @@ export async function confirmStep2(interaction) {
     .setColor(COLORS.warning)
     .setTitle('🧹 Serveur nettoyé')
     .setDescription(
-      `**${wiped.channels}** salon(s), **${wiped.categories}** catégorie(s) ` +
-      `et **${wiped.roles}** rôle(s) supprimés.` +
-      (options.wipeDb ? `\n**${dataCleared}** enregistrement(s) effacé(s) en base.` : ''),
+      `**${wiped.channels}** salon(s) et **${wiped.categories}** catégorie(s) supprimés.\n` +
+      '✅ **Aucun rôle touché** — les membres gardent tout.' +
+      (options.wipeDb ? `\n\n**${dataCleared}** enregistrement(s) effacé(s) en base.` : ''),
     );
 
   if (wiped.failed.length > 0) {

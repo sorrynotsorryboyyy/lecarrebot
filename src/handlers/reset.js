@@ -12,36 +12,21 @@ import { log } from '../lib/logger.js';
  */
 
 /**
- * Un rôle est-il protégé de la suppression ?
+ * Supprime salons et catégories — jamais les rôles.
  *
- * Trois cas où supprimer casserait le serveur ou échouerait :
- *   • @everyone — ne peut pas être supprimé, c'est le rôle de base ;
- *   • les rôles gérés (bots, boosts, intégrations) — Discord refuse ;
- *   • les rôles au-dessus du bot — hors de sa portée.
- *
- * Le rôle du bot lui-même est également conservé : le supprimer lui
- * retirerait ses permissions au milieu du nettoyage.
- */
-export function isRoleProtected(role, me) {
-  if (role.id === role.guild.roles.everyone.id) return true;
-  if (role.managed) return true;
-  if (me.roles.cache.has(role.id)) return true;
-  return role.position >= me.roles.highest.position;
-}
-
-/**
- * Supprime salons, catégories et rôles du serveur.
+ * Les rôles sont volontairement épargnés : sur un serveur actif ils sont
+ * portés par des membres, et les supprimer ferait perdre à chacun son
+ * rang, son identité et son statut. `/setup` les réadopte ensuite par
+ * leur nom et se contente de les réordonner.
  *
  * `keepChannelId` échappe le salon d'où la commande a été lancée : le
  * supprimer ferait disparaître l'interaction avant qu'on ait pu rendre
- * compte du résultat. Il est supprimé en dernier par l'appelant si besoin.
+ * compte du résultat.
  */
 export async function wipeGuild(guild, { keepChannelId } = {}) {
-  const me = guild.members.me;
   const result = { channels: 0, categories: 0, roles: 0, failed: [] };
 
   await guild.channels.fetch();
-  await guild.roles.fetch();
 
   // ─── Salons, catégories en dernier ─────────────────────────────
   // Supprimer une catégorie ne supprime pas ses salons, mais l'ordre
@@ -65,22 +50,8 @@ export async function wipeGuild(guild, { keepChannelId } = {}) {
     }
   }
 
-  // ─── Rôles ─────────────────────────────────────────────────────
-  // Du plus bas au plus haut : supprimer un rôle ne change pas la portée
-  // du bot, mais l'ordre évite les erreurs de hiérarchie en cascade.
-  const roles = [...guild.roles.cache.values()]
-    .filter((r) => !isRoleProtected(r, me))
-    .sort((a, b) => a.position - b.position);
-
-  for (const role of roles) {
-    try {
-      await role.delete('CarréBot — remise à zéro du serveur');
-      result.roles++;
-    } catch (err) {
-      result.failed.push(`rôle **${role.name}** : ${err.message}`);
-    }
-  }
-
+  // Aucun rôle n'est supprimé : les membres conservent rang, identité,
+  // VIP et Membre. /setup les réadopte par leur nom au prochain passage.
   return result;
 }
 
@@ -92,7 +63,6 @@ export async function wipeGuild(guild, { keepChannelId } = {}) {
  */
 export async function wipeData(guildId) {
   const tables = [
-    'member_xp',
     'temp_voice_channels',
     'vip_members',
     'strats',

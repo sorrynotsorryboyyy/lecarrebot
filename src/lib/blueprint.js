@@ -88,13 +88,6 @@ export const CATEGORIES = [
         readOnly: true,
       },
       {
-        key: 'rules',
-        name: '📜-reglement',
-        topic: 'Le règlement à accepter pour devenir membre',
-        access: 'members',
-        readOnly: true,
-      },
-      {
         key: 'welcome',
         name: '👋-bienvenue',
         topic: 'Les nouveaux membres sont accueillis ici',
@@ -116,6 +109,12 @@ export const CATEGORIES = [
     access: 'members',
     channels: [
       {
+        key: 'announcements',
+        name: '📢-annonces',
+        topic: 'Annonces importantes du serveur',
+        readOnly: true,
+      },
+      {
         key: 'general',
         name: '💬-general',
         topic: 'Discussion générale — GIF autorisés, images et liens non',
@@ -136,12 +135,6 @@ export const CATEGORIES = [
         mediaPolicy: 'clips',
       },
       { key: 'suggestions', name: '💡-suggestions', topic: 'Propose tes idées pour le serveur' },
-      {
-        key: 'vote',
-        name: '🗳️-vote',
-        topic: 'Vote toutes les 2h pour soutenir le serveur et gagner des récompenses',
-        readOnly: true,
-      },
     ],
   },
   {
@@ -152,7 +145,7 @@ export const CATEGORIES = [
       {
         key: 'lfg',
         name: '🎮-recherche-mates',
-        topic: 'Trouve des coéquipiers avec /recherche',
+        topic: 'Trouve des coéquipiers en un clic — et gère ton salon vocal',
       },
       {
         key: 'cs2',
@@ -174,12 +167,6 @@ export const CATEGORIES = [
     access: 'members',
     channels: [
       {
-        key: 'announcements',
-        name: '📢-annonces',
-        topic: 'Annonces importantes du serveur',
-        readOnly: true,
-      },
-      {
         key: 'tournaments',
         name: '🏆-tournois',
         topic: 'Tournois de la communauté — inscris-toi avec le bouton sous l\'annonce',
@@ -192,30 +179,6 @@ export const CATEGORIES = [
         readOnly: true,
       },
       { key: 'results', name: '📋-resultats', topic: 'Résultats des tournois', readOnly: true },
-    ],
-  },
-  {
-    key: 'profile',
-    name: '👤 PROFIL',
-    access: 'members',
-    channels: [
-      {
-        key: 'profile',
-        name: '📇-profil',
-        topic: 'Ton profil et ta progression — boutons ci-dessous ou /profil',
-        readOnly: true,
-      },
-      {
-        key: 'commands',
-        name: '🤖-commandes',
-        topic: 'Commandes du bot : /profil /xp /classement /recherche — et gestion de ton vocal',
-      },
-      {
-        key: 'xp',
-        name: '📊-xp',
-        topic: 'Montées de niveau — /xp pour ta progression, /classement pour le top',
-        readOnly: true,
-      },
     ],
   },
   {
@@ -255,9 +218,19 @@ export const CATEGORIES = [
  * irréversible et emporte tout l'historique.
  */
 export const RETIRED_CHANNEL_KEYS = [
-  'other-games',                                  // 🕹️-autres-jeux
+  'other-games',                                        // 🕹️-autres-jeux
   'voice-lobby', 'voice-cs1', 'voice-cs2', 'voice-duo', // vocaux fixes
+  'rules',                    // 📜-reglement — doublon de l'étape 2 de la vérification
+  'vote',                     // 🗳️-vote — votes non vérifiables sans webhook
+  'profile', 'commands', 'xp', // catégorie 👤 PROFIL
 ];
+
+/**
+ * Catégories retirées du plan.
+ * Même règle que les salons : supprimées seulement si leur identifiant
+ * figure en base, donc si le bot les a créées.
+ */
+export const RETIRED_CATEGORY_KEYS = ['profile'];
 
 /**
  * Traduit un niveau d'accès en overwrites Discord.

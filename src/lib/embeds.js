@@ -13,7 +13,9 @@ import { COLORS } from './config.js';
  */
 
 /** Embed + bouton de participation d'un giveaway. */
-export function buildGiveawayMessage({ id, prize, winners, endsAt, entries, ended, vipOnly = false }) {
+export function buildGiveawayMessage({
+  id, prize, winners, endsAt, entries, ended, vipOnly = false, conditions = null,
+}) {
   const ts = Math.floor(new Date(endsAt).getTime() / 1000);
 
   const embed = new EmbedBuilder()
@@ -30,6 +32,24 @@ export function buildGiveawayMessage({ id, prize, winners, endsAt, entries, ende
       { name: 'Participants', value: String(entries), inline: true },
     )
     .setFooter({ text: `Giveaway #${id}` });
+
+  // Conditions purement informatives : le bot ne les vérifie pas, c'est le
+  // staff qui arbitre au moment du tirage. On sépare sur « | » pour
+  // permettre plusieurs lignes depuis une option de commande.
+  if (conditions) {
+    const lines = String(conditions)
+      .split('|')
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .map((c) => `• ${c}`);
+
+    if (lines.length > 0) {
+      embed.addFields({
+        name: '🎯 Conditions de participation',
+        value: lines.join('\n').slice(0, 1024),
+      });
+    }
+  }
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()

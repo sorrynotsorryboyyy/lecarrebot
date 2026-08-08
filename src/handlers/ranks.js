@@ -184,18 +184,35 @@ export async function setRank(interaction, groupId, cfg, domain = 'ranks') {
 
 /** Panneau permanent « À propos de toi » (âge, genre, style de jeu). */
 export function buildIdentityPanel(cfg) {
+  // On liste nommément chaque rôle disponible : un menu seul n'indique pas
+  // ce qu'il contient tant qu'on ne l'a pas ouvert.
+  const list = (group) => group.ranks
+    .map((spec) => `${spec.emoji} **${spec.name.replace(/^\S+\s/, '')}**`)
+    .join(' · ');
+
   const embed = new EmbedBuilder()
     .setColor(COLORS.info)
     .setTitle('🧩 À propos de toi')
     .setDescription(
       'Ces rôles aident la communauté à mieux te connaître et à former des ' +
       'équipes qui te correspondent.\n\n' +
-      '> 🔞 **Âge** — pour les salons et événements adaptés\n' +
-      '> ♂️ **Genre** — facultatif, comme tout le reste\n' +
-      '> 😎 **Style de jeu** — tu peux choisir les deux !\n\n' +
-      'Rien n\'est obligatoire : choisis seulement ce que tu veux afficher.',
+      'Rien n\'est obligatoire — choisis seulement ce que tu veux afficher.',
     )
-    .setFooter({ text: 'Modifiable à tout moment.' });
+    .addFields(
+      {
+        name: '🔞 Tranche d\'âge',
+        value: `${list(IDENTITY_GROUPS.age)}\n*Pour les salons et événements adaptés.*`,
+      },
+      {
+        name: '⚧️ Genre',
+        value: `${list(IDENTITY_GROUPS.gender)}\n*Entièrement facultatif.*`,
+      },
+      {
+        name: '🎮 Style de jeu',
+        value: `${list(IDENTITY_GROUPS.playstyle)}\n*Tu peux choisir les deux !*`,
+      },
+    )
+    .setFooter({ text: 'Un seul choix par catégorie (sauf style de jeu) · Modifiable à tout moment' });
 
   return { embeds: [embed], components: buildIdentityMenus(cfg) };
 }

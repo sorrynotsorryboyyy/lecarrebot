@@ -35,32 +35,28 @@ export function buildHelpEmbed(guild, cfg) {
       {
         name: '🚀 Pour commencer',
         value:
-          `**1.** Choisis ton rang CS2 dans ${ref('roles', '#🎭-roles')}\n` +
-          `**2.** Présente-toi et trouve des mates\n` +
-          `**3.** Utilise les commandes dans ${ref('commands', '#🤖-commandes')}`,
+          `**1.** Choisis ton rang CS2 et tes rôles dans ${ref('roles', '#🎭-roles')}\n` +
+          `**2.** Trouve des mates dans ${ref('lfg', '#🎮-recherche-mates')}\n` +
+          '**3.** Viens discuter et partager tes clips !',
       },
       {
         name: '🎯 Jouer ensemble',
         value:
-          '`/recherche` — Publie une annonce pour trouver des coéquipiers\n' +
-          '> Choisis le mode, ton rang et le nombre de places.\n' +
-          '> Les intéressés cliquent sur **Rejoindre**, tu reçois un MP.',
-      },
-      {
-        name: '📊 Ta progression',
-        value:
-          '`/profil` — Ta fiche : rangs, arrivée, activité\n' +
-          '`/xp` — Ton niveau et ta progression\n' +
-          '`/classement` — Les membres les plus actifs\n' +
-          '`/stats` — Répartition des rangs du serveur\n\n' +
-          '> Tu gagnes de l\'XP en discutant, en vocal et via `/recherche`.',
+          `Dans ${ref('lfg', '#🎮-recherche-mates')}, clique simplement sur le mode ` +
+          'auquel tu veux jouer.\n' +
+          '> Un petit formulaire s\'ouvre, ton annonce est publiée.\n' +
+          '> Les intéressés cliquent sur **Rejoindre** — tu reçois un message privé.',
       },
       {
         name: '🔊 Salons vocaux',
         value:
           'Rejoins **➕ Créer un salon** pour obtenir ton propre vocal.\n' +
-          `> Tu peux le renommer, limiter les places, le rendre privé…\n` +
-          `> Les boutons de gestion sont dans ${ref('commands', '#🤖-commandes')}.`,
+          '> Renomme-le, limite les places, rends-le privé, invite qui tu veux.\n' +
+          `> Les boutons de gestion sont dans ${ref('lfg', '#🎮-recherche-mates')}.`,
+      },
+      {
+        name: '👤 Ton profil',
+        value: '`/profil` — tes rangs, ton arrivée et ton activité sur le serveur',
       },
       {
         name: '📌 À savoir',

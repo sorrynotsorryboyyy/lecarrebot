@@ -298,9 +298,8 @@ async function grantVerified(interaction, cfg) {
     .setDescription(
       'Tu as maintenant accès à l\'ensemble du serveur.\n\n' +
       `🎭 Choisis ton rang CS2 dans ${rolesChannel}\n` +
-      '🎮 `/recherche` — trouve des mates pour jouer\n' +
-      '👤 `/profil` — ta fiche et ta progression\n' +
-      '📊 `/xp` — ton niveau · `/classement` — les plus actifs\n' +
+      '🎮 Trouve des mates en un clic dans le salon de recherche\n' +
+      '👤 `/profil` — ta fiche et tes rangs\n' +
       '❓ `/aide` — le guide complet du serveur\n\n' +
       'Bon jeu !',
     );
@@ -336,89 +335,6 @@ async function sendWelcomeCard(guild, member, cfg) {
     .setTimestamp();
 
   await channel.send({ content: `${member}`, embeds: [embed] }).catch(() => {});
-}
-
-/**
- * Panneau permanent du règlement, publié dans #📜-reglement.
- *
- * Complète — sans remplacer — l'étape 2 du parcours de vérification :
- * permet de relire le règlement, et à un membre arrivé avant l'installation
- * du bot de l'accepter après coup.
- */
-export function buildRulesPanel(cfg) {
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.primary)
-    .setTitle('📜 Règlement du serveur')
-    .setDescription(cfg?.rules_text || DEFAULT_RULES)
-    .setFooter({ text: 'Le non-respect du règlement peut entraîner une sanction.' });
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('rules:accept:panel')
-      .setLabel('J\'accepte le règlement')
-      .setEmoji('✅')
-      .setStyle(ButtonStyle.Success),
-  );
-
-  return { embeds: [embed], components: [row] };
-}
-
-/**
- * Acceptation depuis le panneau permanent.
- *
- * Ce bouton se trouve dans un salon public : il ne doit JAMAIS accorder
- * l'accès à qui n'a pas passé le captcha, sans quoi il constituerait une
- * porte dérobée annulant toute la protection anti-raid.
- */
-export async function acceptRulesFromPanel(interaction) {
-  const { guild, user, member } = interaction;
-  const cfg = await getGuildConfig(guild.id);
-
-  // Cas 1 — déjà membre : on enregistre l'acceptation, sans rien refaire.
-  if (cfg.verified_role_id && member.roles.cache.has(cfg.verified_role_id)) {
-    await query(
-      `INSERT INTO verifications (guild_id, user_id, answer, captcha_ok, rules_ok, verified_at)
-       VALUES ($1, $2, '', TRUE, TRUE, NOW())
-       ON CONFLICT (guild_id, user_id)
-       DO UPDATE SET rules_ok = TRUE,
-                     verified_at = COALESCE(verifications.verified_at, NOW())`,
-      [guild.id, user.id],
-    );
-
-    return interaction.reply({
-      content: '✅ Règlement accepté — merci ! Tu as déjà accès au serveur.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  const { rows } = await query(
-    'SELECT captcha_ok FROM verifications WHERE guild_id = $1 AND user_id = $2',
-    [guild.id, user.id],
-  );
-
-  // Cas 2 — captcha non passé : on renvoie vers le parcours complet.
-  if (!rows[0]?.captcha_ok) {
-    const target = cfg.verify_channel_id
-      ? `<#${cfg.verify_channel_id}>`
-      : 'le salon de vérification';
-
-    return interaction.reply({
-      content:
-        '📜 Merci d\'avoir lu le règlement !\n\n' +
-        `Il te reste le **défi anti-bot** à passer pour débloquer l'accès : rendez-vous dans ${target}.`,
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  // Cas 3 — captcha réussi mais règlement jamais accepté (parcours
-  // interrompu, message éphémère perdu) : on finalise ici.
-  const result = await grantVerified(interaction, cfg);
-
-  return interaction.reply({
-    content: result.ok ? '' : result.error,
-    embeds: result.ok ? [result.embed] : [],
-    flags: MessageFlags.Ephemeral,
-  });
 }
 
 /** Étape 2 (suite) — refus. */

@@ -3,7 +3,6 @@ import { log } from '../lib/logger.js';
 import { getGuildConfig } from '../db/index.js';
 import {
   acceptRules,
-  acceptRulesFromPanel,
   declineRules,
   handleAnswer,
   startVerification,
@@ -17,11 +16,12 @@ import {
 import {
   cancelDraft,
   openComposer,
+  openStratSidePicker,
   publishDraft,
   receiveComposer,
 } from '../handlers/panel.js';
-import { receiveStrat } from '../commands/admin/strat.js';
-import { handleProfileButton } from '../handlers/profilePanel.js';
+import { openStratComposer, receiveStrat } from '../commands/admin/strat.js';
+import { openLfgComposer, publishLfg } from '../handlers/lfgPanel.js';
 import { cancelReset, confirmStep1, confirmStep2 } from '../commands/admin/reset.js';
 import { closeLfg, joinLfg, leaveLfg } from '../handlers/lfg.js';
 import { joinTournament, leaveTournament } from '../handlers/tournoi.js';
@@ -128,12 +128,6 @@ async function runButton(interaction) {
     return enterGiveaway(interaction, Number(arg));
   }
 
-  // Domaine distinct de `verify` : relire le règlement depuis le panneau
-  // permanent ne doit pas déclencher l'avertissement de lockdown.
-  if (domain === 'rules' && action === 'accept') {
-    return acceptRulesFromPanel(interaction);
-  }
-
   if (domain === 'voice') {
     return handleVoiceButton(interaction, action);
   }
@@ -145,8 +139,10 @@ async function runButton(interaction) {
     return;
   }
 
-  if (domain === 'profile') {
-    return handleProfileButton(interaction, action);
+  // Un bouton de mode ouvre directement le formulaire : showModal() ne
+  // peut pas suivre un defer.
+  if (domain === 'lfgpanel' && action === 'mode') {
+    return openLfgComposer(interaction, arg);
   }
 
   if (domain === 'reset') {
@@ -175,9 +171,15 @@ async function runSelectMenu(interaction) {
     return setRank(interaction, arg, cfg, domain);
   }
 
-  if (domain === 'panel' && action === 'type') {
+  if (domain === 'panel') {
     // showModal() ne peut pas suivre un defer : on ouvre directement.
-    return openComposer(interaction, interaction.values[0]);
+    if (action === 'type') return openComposer(interaction, interaction.values[0]);
+    if (action === 'strat') return openStratSidePicker(interaction);
+    // `arg` porte la carte, la valeur choisie porte le côté.
+    if (action === 'stratside') {
+      return openStratComposer(interaction, arg, interaction.values[0]);
+    }
+    return;
   }
 }
 
@@ -216,6 +218,10 @@ async function runModal(interaction) {
 
   if (domain === 'reset' && action === 'modal') {
     return confirmStep2(interaction);
+  }
+
+  if (domain === 'lfgpanel' && action === 'submit') {
+    return publishLfg(interaction, arg);
   }
 }
 

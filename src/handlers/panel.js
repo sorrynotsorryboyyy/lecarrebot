@@ -47,14 +47,6 @@ export const PANEL_TYPES = {
     color: 0xf0a500,
     mention: false,
   },
-  vote: {
-    id: 'vote',
-    label: '🗳️ Panneau de vote',
-    description: 'Publier le panneau de vote top-serveurs',
-    channelKey: 'vote',
-    color: 0x9b59b6,
-    mention: false,
-  },
 };
 
 /** Menu principal de /panel. */
@@ -73,13 +65,20 @@ export function buildPanelMenu() {
     new StringSelectMenuBuilder()
       .setCustomId('panel:type:choose')
       .setPlaceholder('Que veux-tu publier ?')
-      .addOptions(
-        Object.values(PANEL_TYPES).map((t) =>
+      .addOptions([
+        ...Object.values(PANEL_TYPES).map((t) =>
           new StringSelectMenuOptionBuilder()
             .setLabel(t.label)
             .setValue(t.id)
             .setDescription(t.description)),
-      ),
+        // La stratégie a ses propres champs (carte, côté) : elle est
+        // routée vers le formulaire de /strat plutôt que vers le
+        // composeur générique.
+        new StringSelectMenuOptionBuilder()
+          .setLabel('📊 Stratégie CS2')
+          .setValue('strat')
+          .setDescription('Publier une strat ou un line-up'),
+      ]),
   );
 
   return { embeds: [embed], components: [row] };
@@ -90,6 +89,10 @@ export function buildPanelMenu() {
  * `showModal` ne peut pas suivre un defer : on ne diffère jamais ici.
  */
 export async function openComposer(interaction, typeId) {
+  // La stratégie exige carte et côté avant le texte : on passe par un
+  // second menu plutôt que d'entasser 5 champs dans un formulaire.
+  if (typeId === 'strat') return openStratPicker(interaction);
+
   const type = PANEL_TYPES[typeId];
   if (!type) return;
 
@@ -128,6 +131,53 @@ export async function openComposer(interaction, typeId) {
   );
 
   return interaction.showModal(modal);
+}
+
+/**
+ * Sélection de la carte pour une stratégie.
+ * Le côté (T / CT / les deux) est demandé ensuite, puis le formulaire.
+ */
+async function openStratPicker(interaction) {
+  const { MAPS } = await import('../commands/admin/strat.js');
+
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('panel:strat:map')
+      .setPlaceholder('Sur quelle carte ?')
+      .addOptions(MAPS.map((m) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(m.name)
+          .setValue(m.value)
+          .setEmoji(m.emoji))),
+  );
+
+  return interaction.reply({
+    content: '📊 Choisis la carte de ta stratégie :',
+    components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+/** Deuxième étape : le côté concerné. */
+export async function openStratSidePicker(interaction) {
+  const map = interaction.values[0];
+
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      // La carte voyage dans le customId : `panel:stratside:<carte>`.
+      .setCustomId(`panel:stratside:${map}`)
+      .setPlaceholder('Quel côté ?')
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel('Terroristes (T)').setValue('T').setEmoji('🔥'),
+        new StringSelectMenuOptionBuilder().setLabel('Anti-terroristes (CT)').setValue('CT').setEmoji('🛡️'),
+        new StringSelectMenuOptionBuilder().setLabel('Les deux côtés').setValue('Both').setEmoji('⚔️'),
+      ),
+  );
+
+  return interaction.update({
+    content: `📊 **${map}** — choisis le côté :`,
+    components: [row],
+  });
 }
 
 /** Construit l'embed final à partir d'un brouillon. */

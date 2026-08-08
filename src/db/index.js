@@ -208,6 +208,11 @@ export async function initDatabase() {
       winners     INTEGER NOT NULL DEFAULT 1,
       ends_at     TIMESTAMPTZ NOT NULL,
       ended       BOOLEAN NOT NULL DEFAULT FALSE,
+      vip_only    BOOLEAN NOT NULL DEFAULT FALSE,
+      -- Texte libre affiché dans l'embed. Purement informatif : le bot ne
+      -- vérifie pas ces conditions (« inviter 10 personnes » n'est pas
+      -- mesurable de façon fiable), c'est le staff qui arbitre.
+      conditions  TEXT,
       created_by  TEXT NOT NULL,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -308,6 +313,7 @@ export async function initDatabase() {
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS vip_role_id TEXT;
 
     ALTER TABLE giveaways ADD COLUMN IF NOT EXISTS vip_only BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE giveaways ADD COLUMN IF NOT EXISTS conditions TEXT;
   `);
 
   log.info('Base de données initialisée');

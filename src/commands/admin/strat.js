@@ -53,6 +53,15 @@ export async function execute(interaction) {
   const map = interaction.options.getString('carte');
   const side = interaction.options.getString('côté');
 
+  return openStratComposer(interaction, map, side);
+}
+
+/**
+ * Formulaire de rédaction d'une stratégie.
+ * Partagé par la commande /strat et par le panel admin — une seule mise
+ * en forme à maintenir.
+ */
+export async function openStratComposer(interaction, map, side) {
   // Le formulaire recueille les textes longs : les options de commande ne
   // permettent ni saut de ligne ni confort de saisie.
   const modal = new ModalBuilder()

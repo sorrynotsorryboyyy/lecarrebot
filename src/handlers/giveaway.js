@@ -73,6 +73,7 @@ async function refreshGiveaway(client, giveawayId) {
         entries: count[0].n,
         ended: g.ended,
         vipOnly: g.vip_only,
+        conditions: g.conditions,
       }),
     );
   } catch (err) {
@@ -125,6 +126,7 @@ export async function endGiveaway(client, giveaway, { reroll = false } = {}) {
           entries: entries.length,
           ended: true,
           vipOnly: giveaway.vip_only,
+          conditions: giveaway.conditions,
         }),
       );
     } catch {
