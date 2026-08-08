@@ -11,6 +11,7 @@ import { buildVerifyPanel, DEFAULT_RULES } from '../../handlers/verification.js'
 import {
   CATEGORIES,
   CHANNEL_CONFIG_KEYS,
+  CHANNEL_INTROS,
   ROLES,
   buildOverwrites,
   channelType,
@@ -90,9 +91,10 @@ export async function execute(interaction) {
 
     await updateGuildConfig(guild.id, patch);
 
-    // ─── 4. Contenus : règlement et panneau ──────────────────────
+    // ─── 4. Contenus : règlement, panneau, présentations ─────────
     await publishRules(guild, created, cfg, report);
     await publishPanel(guild, created, report);
+    await publishIntros(guild, created, report);
 
     // ─── 5. Hiérarchie ───────────────────────────────────────────
     checkHierarchy(guild, me, roleIds, report);
@@ -279,6 +281,40 @@ async function publishPanel(guild, created, report) {
     await channel.send(buildVerifyPanel());
   } catch (err) {
     report.warnings.push(`Panneau non publié : ${err.message}`);
+  }
+}
+
+/**
+ * Poste un embed de présentation dans chaque salon en lecture seule.
+ *
+ * Ces salons resteraient vides et sans explication : l'embed indique à quoi
+ * ils servent et comment y participer (boutons plutôt que messages).
+ */
+async function publishIntros(guild, created, report) {
+  for (const [key, intro] of Object.entries(CHANNEL_INTROS)) {
+    const channelId = created[key];
+    if (!channelId) continue;
+
+    try {
+      const channel = await guild.channels.fetch(channelId);
+      const existing = await channel.messages.fetch({ limit: 10 });
+
+      // On ne republie pas si le bot a déjà posté ici : /setup est
+      // relançable, elle ne doit pas empiler les présentations.
+      const already = existing.some((m) => m.author.id === guild.client.user.id);
+      if (already) continue;
+
+      const embed = new EmbedBuilder()
+        .setColor(intro.color)
+        .setTitle(intro.title)
+        .setDescription(intro.description);
+
+      if (intro.footer) embed.setFooter({ text: intro.footer });
+
+      await channel.send({ embeds: [embed] });
+    } catch (err) {
+      report.warnings.push(`Présentation de **${key}** non publiée : ${err.message}`);
+    }
   }
 }
 

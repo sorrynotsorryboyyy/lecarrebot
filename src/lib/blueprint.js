@@ -225,6 +225,83 @@ export function channelType(spec) {
 }
 
 /**
+ * Embeds de présentation postés dans les salons en lecture seule.
+ *
+ * Un embed sans `color` s'affiche avec une barre latérale grise/blanche :
+ * chaque entrée définit donc explicitement sa couleur.
+ *
+ * Clé = `key` du salon dans le plan ci-dessus.
+ */
+export const CHANNEL_INTROS = {
+  announcements: {
+    color: 0xe67e22,
+    title: '📢 Annonces',
+    description:
+      'Ce salon contient les **annonces officielles** du serveur.\n\n' +
+      'Mises à jour, événements à venir, changements de règlement : ' +
+      'tout ce qu\'il faut savoir est publié ici.\n\n' +
+      '🔔 Active les notifications pour ne rien manquer.',
+    footer: 'Seul le staff peut écrire ici.',
+  },
+
+  welcome: {
+    color: 0x2ecc71,
+    title: '👋 Bienvenue !',
+    description:
+      'Ce salon accueille les **nouveaux membres** de la communauté.\n\n' +
+      'Tu viens d\'arriver ? Présente-toi : ton pseudo en jeu, ton rang, ' +
+      'tes horaires de jeu habituels.\n\n' +
+      'Bon jeu et bienvenue parmi nous ! 🎮',
+  },
+
+  tournaments: {
+    color: 0xf1c40f,
+    title: '🏆 Tournois',
+    description:
+      'Les **tournois de la communauté** sont annoncés ici.\n\n' +
+      '**Comment participer ?**\n' +
+      '> Clique sur le bouton **S\'inscrire** sous l\'annonce du tournoi.\n' +
+      '> Tu peux te désinscrire à tout moment avant le début.\n\n' +
+      '📋 Les résultats sont publiés dans le salon dédié.',
+    footer: 'Les inscriptions se font par bouton, pas par message.',
+  },
+
+  giveaways: {
+    color: 0xe91e63,
+    title: '🎁 Giveaways',
+    description:
+      'Les **concours et giveaways** ont lieu dans ce salon.\n\n' +
+      '**Comment participer ?**\n' +
+      '> Clique sur le bouton 🎉 **Participer** sous le giveaway.\n' +
+      '> Le tirage est automatique à la fin du compte à rebours.\n\n' +
+      '🍀 Une seule participation par personne — bonne chance !',
+    footer: 'Les gagnants sont mentionnés automatiquement.',
+  },
+
+  results: {
+    color: 0x9b59b6,
+    title: '📋 Résultats',
+    description:
+      'Les **résultats des tournois** et événements sont archivés ici.\n\n' +
+      'Classements, scores et highlights des compétitions passées.',
+    footer: 'Seul le staff peut écrire ici.',
+  },
+
+  logs: {
+    color: 0x95a5a6,
+    title: '📋 Journal du CarréBot',
+    description:
+      'Ce salon enregistre automatiquement les **actions du bot** :\n\n' +
+      '> • Vérifications réussies et échouées\n' +
+      '> • Alertes anti-raid et lockdowns\n' +
+      '> • Sanctions (warn, mute, kick, ban)\n' +
+      '> • Purges de messages\n\n' +
+      '🔒 Salon réservé au staff.',
+    footer: 'Écrit automatiquement par le bot.',
+  },
+};
+
+/**
  * Colonnes de `guild_config` correspondant aux salons du plan.
  * Seuls ces salons sont mémorisés en base — les autres sont décoratifs.
  */

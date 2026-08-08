@@ -13,11 +13,29 @@ import { enterGiveaway } from '../handlers/giveaway.js';
 
 export const name = Events.InteractionCreate;
 
+/**
+ * Codes d'erreur Discord qui ne traduisent pas un bug applicatif :
+ *   40060 — interaction déjà acquittée (deux instances du bot écoutent la
+ *           même interaction ; typique de `node --watch`, qui redémarre le
+ *           process sans fermer la connexion précédente).
+ *   10062 — interaction inconnue : le délai de 3s est dépassé.
+ */
+const BENIGN_CODES = new Set([40060, 10062]);
+
 export async function execute(interaction) {
   try {
     if (interaction.isChatInputCommand()) return await runCommand(interaction);
     if (interaction.isButton()) return await runButton(interaction);
   } catch (err) {
+    if (BENIGN_CODES.has(err.code)) {
+      log.warn(
+        `Interaction ${interaction.id} déjà traitée (code ${err.code}). ` +
+        'Une autre instance du bot tourne probablement en parallèle — ' +
+        'ferme les anciens processus, ou utilise `npm start` plutôt que `npm run dev`.',
+      );
+      return;
+    }
+
     log.error(`Erreur sur l'interaction ${interaction.id}`, err);
     await replyError(interaction);
   }
@@ -105,7 +123,10 @@ async function replyError(interaction) {
     } else {
       await interaction.reply(payload);
     }
-  } catch {
+  } catch (err) {
     // L'interaction a expiré (3s) ou a déjà reçu une réponse : rien à faire.
+    if (!BENIGN_CODES.has(err.code)) {
+      log.debug(`Réponse d'erreur impossible : ${err.message}`);
+    }
   }
 }
