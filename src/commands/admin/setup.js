@@ -1,5 +1,4 @@
 import {
-  ChannelType,
   EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
@@ -7,381 +6,334 @@ import {
 } from 'discord.js';
 import { getGuildConfig, updateGuildConfig } from '../../db/index.js';
 import { COLORS } from '../../lib/config.js';
-import { buildVerifyPanel } from '../../handlers/verification.js';
+import { log } from '../../lib/logger.js';
+import { buildVerifyPanel, DEFAULT_RULES } from '../../handlers/verification.js';
+import {
+  CATEGORIES,
+  CHANNEL_CONFIG_KEYS,
+  ROLES,
+  buildOverwrites,
+  channelType,
+} from '../../lib/blueprint.js';
 
+/**
+ * /setup — construit l'intégralité du serveur en une seule commande.
+ *
+ * Idempotent : réutilise ce qui existe déjà (par ID mémorisé, puis par nom)
+ * au lieu de créer des doublons. On peut donc la relancer sans risque après
+ * avoir supprimé un salon par erreur.
+ */
 export const data = new SlashCommandBuilder()
   .setName('setup')
-  .setDescription('Configuration du CarréBot')
-  .addSubcommand((s) =>
-    s.setName('auto')
-      .setDescription('Configuration automatique : crée salons et rôles manquants'))
-  .addSubcommand((s) =>
-    s.setName('salons')
-      .setDescription('Définir les salons manuellement')
-      .addChannelOption((o) =>
-        o.setName('vérification').setDescription('Salon du panneau de vérification')
-          .addChannelTypes(ChannelType.GuildText))
-      .addChannelOption((o) =>
-        o.setName('règlement').setDescription('Salon du règlement')
-          .addChannelTypes(ChannelType.GuildText))
-      .addChannelOption((o) =>
-        o.setName('logs').setDescription('Salon des logs de modération')
-          .addChannelTypes(ChannelType.GuildText))
-      .addChannelOption((o) =>
-        o.setName('lfg').setDescription('Salon de recherche de mates')
-          .addChannelTypes(ChannelType.GuildText)))
-  .addSubcommand((s) =>
-    s.setName('roles')
-      .setDescription('Définir les rôles')
-      .addRoleOption((o) =>
-        o.setName('vérifié').setDescription('Rôle donné après vérification').setRequired(true))
-      .addRoleOption((o) =>
-        o.setName('non_vérifié').setDescription('Rôle retiré après vérification (optionnel)')))
-  .addSubcommand((s) =>
-    s.setName('panneau')
-      .setDescription('Publier le panneau de vérification dans le salon configuré'))
-  .addSubcommand((s) =>
-    s.setName('règlement')
-      .setDescription('Modifier le texte du règlement')
-      .addStringOption((o) =>
-        o.setName('texte')
-          .setDescription('Le règlement complet (\\n pour un retour à la ligne)')
-          .setRequired(true)
-          .setMaxLength(3500)))
-  .addSubcommand((s) =>
-    s.setName('antiraid')
-      .setDescription('Régler la protection anti-raid')
-      .addBooleanOption((o) => o.setName('activé').setDescription('Activer la protection'))
-      .addIntegerOption((o) =>
-        o.setName('arrivées').setDescription('Nb d\'arrivées déclenchant un lockdown (défaut 5)')
-          .setMinValue(2).setMaxValue(50))
-      .addIntegerOption((o) =>
-        o.setName('fenêtre').setDescription('Fenêtre de détection en secondes (défaut 10)')
-          .setMinValue(5).setMaxValue(300))
-      .addIntegerOption((o) =>
-        o.setName('âge_min').setDescription('Âge minimum du compte en jours (défaut 7)')
-          .setMinValue(0).setMaxValue(365)))
-  .addSubcommand((s) =>
-    s.setName('voir').setDescription('Afficher la configuration actuelle'))
+  .setDescription('Crée TOUT le serveur : rôles, catégories, salons, permissions et panneau')
+  .addBooleanOption((o) =>
+    o.setName('verrouiller_existant')
+      .setDescription('Masquer aussi les salons déjà présents aux non-vérifiés (défaut : oui)'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(interaction) {
-  const sub = interaction.options.getSubcommand();
-
-  switch (sub) {
-    case 'auto':      return autoSetup(interaction);
-    case 'salons':    return setChannels(interaction);
-    case 'roles':     return setRoles(interaction);
-    case 'panneau':   return postPanel(interaction);
-    case 'règlement': return setRules(interaction);
-    case 'antiraid':  return setAntiraid(interaction);
-    case 'voir':      return showConfig(interaction);
-  }
-}
-
-/**
- * Configuration automatique : crée ce qui manque et verrouille le serveur
- * derrière la vérification, sans toucher à l'existant déjà configuré.
- */
-async function autoSetup(interaction) {
+  // La création complète dépasse largement les 3s d'une réponse directe.
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const guild = interaction.guild;
   const me = guild.members.me;
+  const lockExisting = interaction.options.getBoolean('verrouiller_existant') ?? true;
 
-  if (!me.permissions.has(PermissionFlagsBits.ManageRoles) ||
-      !me.permissions.has(PermissionFlagsBits.ManageChannels)) {
-    return interaction.editReply(
-      '❌ Il me faut les permissions **Gérer les rôles** et **Gérer les salons** pour la configuration automatique.',
-    );
+  if (!me.permissions.has(PermissionFlagsBits.Administrator)) {
+    const missing = ['ManageRoles', 'ManageChannels']
+      .filter((p) => !me.permissions.has(PermissionFlagsBits[p]));
+    if (missing.length > 0) {
+      return interaction.editReply(
+        '❌ Permissions insuffisantes.\n\n' +
+        'Il me faut au minimum **Gérer les rôles** et **Gérer les salons** ' +
+        '(le plus simple : donne-moi **Administrateur**).',
+      );
+    }
   }
 
-  const steps = [];
+  const report = { roles: [], categories: [], channels: [], locked: 0, warnings: [] };
   const cfg = await getGuildConfig(guild.id);
   const patch = {};
 
-  // ─── Rôle vérifié ────────────────────────────────────────────────
-  let verifiedRole = cfg.verified_role_id
-    ? guild.roles.cache.get(cfg.verified_role_id)
-    : guild.roles.cache.find((r) => r.name === '✅ Vérifié');
+  try {
+    // ─── 1. Rôles ────────────────────────────────────────────────
+    const roleIds = await ensureRoles(guild, cfg, report);
+    patch.verified_role_id = roleIds.verified;
 
-  if (!verifiedRole) {
-    verifiedRole = await guild.roles.create({
-      name: '✅ Vérifié',
-      color: 0x57f287,
-      reason: 'CarréBot — configuration automatique',
-    });
-    steps.push(`✅ Rôle ${verifiedRole} créé`);
-  } else {
-    steps.push(`↩️ Rôle ${verifiedRole} réutilisé`);
-  }
-  patch.verified_role_id = verifiedRole.id;
-
-  // ─── Salons ──────────────────────────────────────────────────────
-  const ensureChannel = async (key, name, topic, overwrites) => {
-    const existingId = cfg[key];
-    let channel = existingId ? guild.channels.cache.get(existingId) : null;
-    if (!channel) channel = guild.channels.cache.find((c) => c.name === name);
-
-    if (!channel) {
-      channel = await guild.channels.create({
-        name,
-        type: ChannelType.GuildText,
-        topic,
-        permissionOverwrites: overwrites,
-        reason: 'CarréBot — configuration automatique',
-      });
-      steps.push(`✅ Salon ${channel} créé`);
-    } else {
-      steps.push(`↩️ Salon ${channel} réutilisé`);
+    // La suite dépend du rôle vérifié : sans lui, rien n'a de sens.
+    if (!roleIds.verified) {
+      return interaction.editReply(
+        '❌ Impossible de créer ou retrouver le rôle vérifié. Vérifie mes permissions.',
+      );
     }
-    patch[key] = channel.id;
-    return channel;
-  };
 
-  // #verification : visible par tous, écriture interdite.
-  const verifyChannel = await ensureChannel(
-    'verify_channel_id', '🔐-verification',
-    'Vérifie-toi ici pour accéder au serveur',
-    [
-      {
-        id: guild.roles.everyone.id,
-        allow: [PermissionFlagsBits.ViewChannel],
-        deny: [PermissionFlagsBits.SendMessages],
-      },
-      {
-        id: verifiedRole.id,
-        deny: [PermissionFlagsBits.ViewChannel],
-      },
-    ],
+    const ids = {
+      everyone: guild.roles.everyone.id,
+      verified: roleIds.verified,
+      moderator: roleIds.moderator,
+      admin: roleIds.admin,
+      bot: me.id,
+    };
+
+    // ─── 2. Catégories et salons ─────────────────────────────────
+    const created = await ensureStructure(guild, cfg, ids, report);
+    for (const [key, column] of Object.entries(CHANNEL_CONFIG_KEYS)) {
+      if (created[key]) patch[column] = created[key];
+    }
+
+    // ─── 3. Salons préexistants ──────────────────────────────────
+    // Sans cette étape, la vérification serait décorative : un arrivant
+    // verrait déjà tout ce qui existait avant le setup.
+    if (lockExisting) {
+      report.locked = await lockLegacyChannels(guild, ids, created, report);
+    }
+
+    await updateGuildConfig(guild.id, patch);
+
+    // ─── 4. Contenus : règlement et panneau ──────────────────────
+    await publishRules(guild, created, cfg, report);
+    await publishPanel(guild, created, report);
+
+    // ─── 5. Hiérarchie ───────────────────────────────────────────
+    checkHierarchy(guild, me, roleIds, report);
+  } catch (err) {
+    log.error('Échec du setup', err);
+    return interaction.editReply(
+      `❌ Le setup s'est interrompu : ${err.message}\n\n` +
+      'Les éléments déjà créés sont conservés — relance `/setup` pour reprendre.',
+    );
+  }
+
+  return interaction.editReply({ embeds: [buildReport(report)] });
+}
+
+/** Crée les rôles manquants et renvoie leurs IDs par clé. */
+async function ensureRoles(guild, cfg, report) {
+  const ids = {};
+
+  // Créés du plus bas au plus haut : chaque `create` place le rôle en haut
+  // de ce que le bot peut atteindre, donc l'ordre inverse donne la bonne
+  // hiérarchie finale (Admin > Modérateur > Vérifié).
+  for (const spec of [...ROLES].reverse()) {
+    const knownId = spec.key === 'verified' ? cfg.verified_role_id : null;
+
+    let role = knownId ? guild.roles.cache.get(knownId) : null;
+    if (!role) role = guild.roles.cache.find((r) => r.name === spec.name);
+
+    if (role) {
+      ids[spec.key] = role.id;
+      report.roles.push({ name: spec.name, status: 'existant' });
+      continue;
+    }
+
+    try {
+      role = await guild.roles.create({
+        name: spec.name,
+        color: spec.color,
+        hoist: spec.hoist,
+        permissions: spec.permissions,
+        reason: 'CarréBot — setup',
+      });
+      ids[spec.key] = role.id;
+      report.roles.push({ name: spec.name, status: 'créé' });
+    } catch (err) {
+      report.warnings.push(`Rôle **${spec.name}** non créé : ${err.message}`);
+    }
+  }
+
+  return ids;
+}
+
+/** Crée catégories et salons manquants. Renvoie { cléSalon: id }. */
+async function ensureStructure(guild, cfg, ids, report) {
+  const created = {};
+
+  for (const cat of CATEGORIES) {
+    let category = guild.channels.cache.find(
+      (c) => c.type === 4 && c.name === cat.name,
+    );
+
+    if (!category) {
+      try {
+        category = await guild.channels.create({
+          name: cat.name,
+          type: 4, // GuildCategory
+          permissionOverwrites: buildOverwrites(cat.access, ids),
+          reason: 'CarréBot — setup',
+        });
+        report.categories.push({ name: cat.name, status: 'créée' });
+      } catch (err) {
+        report.warnings.push(`Catégorie **${cat.name}** non créée : ${err.message}`);
+        continue;
+      }
+    } else {
+      report.categories.push({ name: cat.name, status: 'existante' });
+    }
+
+    for (const spec of cat.channels) {
+      const configColumn = CHANNEL_CONFIG_KEYS[spec.key];
+      const knownId = configColumn ? cfg[configColumn] : null;
+
+      let channel = knownId ? guild.channels.cache.get(knownId) : null;
+      if (!channel) channel = guild.channels.cache.find((c) => c.name === spec.name);
+
+      if (channel) {
+        created[spec.key] = channel.id;
+        report.channels.push({ name: spec.name, status: 'existant' });
+        continue;
+      }
+
+      try {
+        channel = await guild.channels.create({
+          name: spec.name,
+          type: channelType(spec),
+          parent: category.id,
+          topic: spec.type === 'voice' ? undefined : spec.topic,
+          userLimit: spec.userLimit,
+          permissionOverwrites: buildOverwrites(
+            spec.access ?? cat.access,
+            ids,
+            { readOnly: spec.readOnly },
+          ),
+          reason: 'CarréBot — setup',
+        });
+        created[spec.key] = channel.id;
+        report.channels.push({ name: spec.name, status: 'créé' });
+      } catch (err) {
+        report.warnings.push(`Salon **${spec.name}** non créé : ${err.message}`);
+      }
+    }
+  }
+
+  return created;
+}
+
+/** Masque aux non-vérifiés les salons qui existaient avant le setup. */
+async function lockLegacyChannels(guild, ids, created, report) {
+  const managed = new Set(Object.values(created));
+  const blueprintNames = new Set(
+    CATEGORIES.flatMap((c) => [c.name, ...c.channels.map((ch) => ch.name)]),
   );
 
-  // #reglement : lisible seulement après vérification.
-  await ensureChannel(
-    'rules_channel_id', '📜-reglement',
-    'Le règlement du serveur',
-    [
-      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      {
-        id: verifiedRole.id,
-        allow: [PermissionFlagsBits.ViewChannel],
-        deny: [PermissionFlagsBits.SendMessages],
-      },
-    ],
-  );
-
-  // #logs : réservé au staff.
-  await ensureChannel(
-    'logs_channel_id', '📋-logs-carrebot',
-    'Journal des actions du CarréBot',
-    [
-      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-    ],
-  );
-
-  // #recherche-mates : réservé aux vérifiés.
-  await ensureChannel(
-    'lfg_channel_id', '🎮-recherche-mates',
-    'Trouve des coéquipiers avec /lfg',
-    [
-      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: verifiedRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-    ],
-  );
-
-  await updateGuildConfig(guild.id, patch);
-
-  // ─── Verrouillage des autres salons ──────────────────────────────
-  // Sans cette étape, la vérification serait décorative : un arrivant
-  // verrait déjà tout le serveur.
-  let locked = 0;
-  const managedIds = new Set(Object.values(patch));
+  let count = 0;
 
   for (const channel of guild.channels.cache.values()) {
-    if (managedIds.has(channel.id)) continue;
-    if (channel.type === ChannelType.GuildCategory) continue;
+    if (managed.has(channel.id)) continue;
+    if (blueprintNames.has(channel.name)) continue;
 
     try {
       await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false });
-      await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true });
-      locked++;
+      await channel.permissionOverwrites.edit(ids.verified, { ViewChannel: true });
+      count++;
     } catch {
-      // Salon hors de portée : on continue.
+      // Salon hors de portée du bot : on continue sans bloquer le reste.
     }
   }
-  if (locked > 0) steps.push(`🔒 ${locked} salon(s) verrouillés derrière la vérification`);
 
-  // ─── Panneau de vérification ─────────────────────────────────────
-  await verifyChannel.send(buildVerifyPanel()).catch(() => {});
-  steps.push(`📌 Panneau publié dans ${verifyChannel}`);
-
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.success)
-    .setTitle('✅ Configuration terminée')
-    .setDescription(steps.join('\n'))
-    .setFooter({
-      text: 'Vérifie que le rôle du bot est bien AU-DESSUS du rôle Vérifié dans Paramètres > Rôles.',
-    });
-
-  return interaction.editReply({ embeds: [embed] });
+  return count;
 }
 
-async function setChannels(interaction) {
-  const patch = {};
-  const map = {
-    'vérification': 'verify_channel_id',
-    'règlement': 'rules_channel_id',
-    'logs': 'logs_channel_id',
-    'lfg': 'lfg_channel_id',
-  };
+/** Publie le règlement dans son salon, s'il est encore vide. */
+async function publishRules(guild, created, cfg, report) {
+  const channelId = created.rules;
+  if (!channelId) return;
 
-  for (const [option, column] of Object.entries(map)) {
-    const channel = interaction.options.getChannel(option);
-    if (channel) patch[column] = channel.id;
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    const existing = await channel.messages.fetch({ limit: 5 });
+
+    // On ne republie pas si le salon contient déjà quelque chose : l'admin
+    // a pu personnaliser son règlement à la main.
+    if (existing.size > 0) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(COLORS.primary)
+      .setTitle('📜 Règlement du serveur')
+      .setDescription(cfg.rules_text || DEFAULT_RULES)
+      .setFooter({ text: 'Le non-respect du règlement peut entraîner une sanction.' });
+
+    await channel.send({ embeds: [embed] });
+  } catch (err) {
+    report.warnings.push(`Règlement non publié : ${err.message}`);
+  }
+}
+
+/** Publie le panneau de vérification, s'il n'y est pas déjà. */
+async function publishPanel(guild, created, report) {
+  const channelId = created.verify;
+  if (!channelId) {
+    report.warnings.push('Salon de vérification introuvable — panneau non publié.');
+    return;
   }
 
-  if (Object.keys(patch).length === 0) {
-    return interaction.reply({
-      content: '❌ Indique au moins un salon.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
+  try {
+    const channel = await guild.channels.fetch(channelId);
+    const existing = await channel.messages.fetch({ limit: 10 });
 
-  await updateGuildConfig(interaction.guild.id, patch);
-
-  return interaction.reply({
-    content: `✅ ${Object.keys(patch).length} salon(s) configuré(s).`,
-    flags: MessageFlags.Ephemeral,
-  });
-}
-
-async function setRoles(interaction) {
-  const verified = interaction.options.getRole('vérifié');
-  const unverified = interaction.options.getRole('non_vérifié');
-
-  const me = interaction.guild.members.me;
-  if (verified.position >= me.roles.highest.position) {
-    return interaction.reply({
-      content:
-        `⛔ Le rôle ${verified} est au-dessus du mien : je ne pourrai pas l'attribuer.\n` +
-        'Déplace mon rôle plus haut dans **Paramètres du serveur > Rôles**.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  await updateGuildConfig(interaction.guild.id, {
-    verified_role_id: verified.id,
-    ...(unverified ? { unverified_role_id: unverified.id } : {}),
-  });
-
-  return interaction.reply({
-    content: `✅ Rôle vérifié : ${verified}${unverified ? `\n✅ Rôle non-vérifié : ${unverified}` : ''}`,
-    flags: MessageFlags.Ephemeral,
-  });
-}
-
-async function postPanel(interaction) {
-  const cfg = await getGuildConfig(interaction.guild.id);
-
-  const channelId = cfg.verify_channel_id ?? interaction.channel.id;
-  const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-
-  if (!channel?.isTextBased()) {
-    return interaction.reply({
-      content: '❌ Salon de vérification introuvable. Configure-le avec `/setup salons`.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  await channel.send(buildVerifyPanel());
-
-  return interaction.reply({
-    content: `✅ Panneau publié dans ${channel}.`,
-    flags: MessageFlags.Ephemeral,
-  });
-}
-
-async function setRules(interaction) {
-  // Les options de commande ne peuvent pas contenir de vrai saut de ligne :
-  // on accepte la séquence \n littérale saisie par l'admin.
-  const text = interaction.options.getString('texte').replace(/\\n/g, '\n');
-
-  await updateGuildConfig(interaction.guild.id, { rules_text: text });
-
-  return interaction.reply({
-    content: '✅ Règlement mis à jour. Il sera affiché lors des prochaines vérifications.',
-    flags: MessageFlags.Ephemeral,
-  });
-}
-
-async function setAntiraid(interaction) {
-  const patch = {};
-  const enabled = interaction.options.getBoolean('activé');
-  const joins = interaction.options.getInteger('arrivées');
-  const window = interaction.options.getInteger('fenêtre');
-  const minAge = interaction.options.getInteger('âge_min');
-
-  if (enabled !== null) patch.antiraid_enabled = enabled;
-  if (joins !== null) patch.antiraid_joins = joins;
-  if (window !== null) patch.antiraid_window = window;
-  if (minAge !== null) patch.antiraid_min_age = minAge;
-
-  if (Object.keys(patch).length === 0) {
-    return interaction.reply({
-      content: '❌ Indique au moins un réglage à modifier.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  const cfg = await updateGuildConfig(interaction.guild.id, patch);
-
-  return interaction.reply({
-    content:
-      `✅ Anti-raid mis à jour :\n` +
-      `• Protection : **${cfg.antiraid_enabled ? 'activée' : 'désactivée'}**\n` +
-      `• Seuil : **${cfg.antiraid_joins} arrivées / ${cfg.antiraid_window}s**\n` +
-      `• Âge minimum du compte : **${cfg.antiraid_min_age} jour(s)**`,
-    flags: MessageFlags.Ephemeral,
-  });
-}
-
-async function showConfig(interaction) {
-  const cfg = await getGuildConfig(interaction.guild.id);
-
-  const ref = (id, type) => (id ? (type === 'role' ? `<@&${id}>` : `<#${id}>`) : '*non configuré*');
-
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.primary)
-    .setTitle('⚙️ Configuration du CarréBot')
-    .addFields(
-      {
-        name: '📁 Salons',
-        value:
-          `Vérification : ${ref(cfg.verify_channel_id)}\n` +
-          `Règlement : ${ref(cfg.rules_channel_id)}\n` +
-          `Logs : ${ref(cfg.logs_channel_id)}\n` +
-          `Recherche de mates : ${ref(cfg.lfg_channel_id)}`,
-      },
-      {
-        name: '🎭 Rôles',
-        value:
-          `Vérifié : ${ref(cfg.verified_role_id, 'role')}\n` +
-          `Non vérifié : ${ref(cfg.unverified_role_id, 'role')}`,
-      },
-      {
-        name: '🛡️ Anti-raid',
-        value:
-          `Protection : **${cfg.antiraid_enabled ? '✅ activée' : '❌ désactivée'}**\n` +
-          `Seuil : **${cfg.antiraid_joins} arrivées / ${cfg.antiraid_window}s**\n` +
-          `Âge minimum : **${cfg.antiraid_min_age} jour(s)**\n` +
-          `Lockdown : **${cfg.lockdown_active ? '🚨 ACTIF' : 'inactif'}**`,
-      },
-      {
-        name: '📜 Règlement',
-        value: cfg.rules_text ? '*personnalisé*' : '*par défaut*',
-      },
+    const alreadyThere = existing.some((m) =>
+      m.author.id === guild.client.user.id &&
+      m.components?.[0]?.components?.[0]?.customId === 'verify:start',
     );
+    if (alreadyThere) return;
 
-  return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await channel.send(buildVerifyPanel());
+  } catch (err) {
+    report.warnings.push(`Panneau non publié : ${err.message}`);
+  }
+}
+
+/** Signale le piège classique : rôle du bot trop bas dans la hiérarchie. */
+function checkHierarchy(guild, me, roleIds, report) {
+  const verified = guild.roles.cache.get(roleIds.verified);
+  if (verified && verified.position >= me.roles.highest.position) {
+    report.warnings.push(
+      `Mon rôle est **sous** ${verified} : je ne pourrai pas l'attribuer. ` +
+      'Déplace-le plus haut dans **Paramètres du serveur → Rôles**.',
+    );
+  }
+}
+
+/** Compte les éléments par statut pour un résumé lisible. */
+function summarize(items) {
+  const created = items.filter((i) => i.status.startsWith('cré')).length;
+  const existing = items.length - created;
+  return { created, existing };
+}
+
+function buildReport(report) {
+  const r = summarize(report.roles);
+  const c = summarize(report.categories);
+  const ch = summarize(report.channels);
+
+  const line = (label, s) =>
+    `${label} : **${s.created}** créé(s)` + (s.existing ? `, ${s.existing} réutilisé(s)` : '');
+
+  const embed = new EmbedBuilder()
+    .setColor(report.warnings.length > 0 ? COLORS.warning : COLORS.success)
+    .setTitle('✅ Serveur configuré')
+    .setDescription(
+      [
+        line('🎭 Rôles', r),
+        line('📂 Catégories', c),
+        line('📁 Salons', ch),
+        report.locked > 0
+          ? `🔒 Salons préexistants masqués aux non-vérifiés : **${report.locked}**`
+          : null,
+      ].filter(Boolean).join('\n'),
+    )
+    .addFields({
+      name: '▶️ Et maintenant ?',
+      value:
+        'Le serveur est prêt : la vérification est active et le panneau publié.\n' +
+        'Teste-la avec un second compte, ou ajuste les détails avec `/config`.',
+    });
+
+  if (report.warnings.length > 0) {
+    embed.addFields({
+      name: `⚠️ Points à vérifier (${report.warnings.length})`,
+      value: report.warnings.slice(0, 5).map((w) => `• ${w}`).join('\n').slice(0, 1024),
+    });
+  }
+
+  return embed;
 }

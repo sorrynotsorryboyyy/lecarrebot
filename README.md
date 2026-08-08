@@ -92,16 +92,31 @@ lance temporairement `npm run deploy`, puis remets `npm start`.
 
 ### 4. Configurer le serveur
 
-Dans Discord, en tant qu'administrateur :
+Dans Discord, en tant qu'administrateur, **une seule commande** :
 
 ```
-/setup auto
+/setup
 ```
 
-Cette commande fait tout :
-- crée le rôle `✅ Vérifié` et les salons `#🔐-verification`, `#📜-reglement`, `#📋-logs-carrebot`, `#🎮-recherche-mates`,
-- **verrouille tous les autres salons** derrière la vérification,
-- publie le panneau de vérification.
+Elle construit l'intégralité du serveur :
+
+| | Détail |
+|---|---|
+| **3 rôles** | `👑 Admin`, `🛡️ Modérateur`, `✅ Vérifié` — avec les bonnes permissions et dans le bon ordre hiérarchique |
+| **6 catégories** | 🚪 Arrivée · 💬 Communauté · 🎮 Gaming · 🏆 Événements · 🔊 Vocaux · 🛡️ Staff |
+| **23 salons** | textuels et vocaux, chacun avec ses permissions |
+| **Permissions** | `@everyone` ne voit que `#🔐-verification` ; tout le reste exige le rôle Vérifié |
+| **Contenus** | règlement publié et panneau de vérification posé automatiquement |
+
+`/setup` est **idempotent** : relancez-la autant de fois que voulu, elle
+réutilise ce qui existe déjà au lieu de créer des doublons. Pratique pour
+réparer un salon supprimé par erreur.
+
+> Par défaut, les salons qui existaient **avant** le setup sont aussi masqués
+> aux non-vérifiés. Pour les laisser tels quels :
+> `/setup verrouiller_existant:false`
+
+Les ajustements ultérieurs passent par `/config` (voir plus bas).
 
 > ⚠️ **Point crucial** : dans **Paramètres du serveur → Rôles**, le rôle du bot doit être
 > **au-dessus** du rôle `✅ Vérifié`. Sinon Discord refuse au bot de l'attribuer.
@@ -137,13 +152,13 @@ dans `DATABASE_URL` (onglet Postgres → **Connect → Public Network**).
 ### Configuration — *Administrateur*
 | Commande | Rôle |
 |---|---|
-| `/setup auto` | Configuration complète automatique |
-| `/setup salons` | Définir les salons manuellement |
-| `/setup roles` | Définir les rôles |
-| `/setup panneau` | Republier le panneau de vérification |
-| `/setup règlement` | Modifier le texte du règlement |
-| `/setup antiraid` | Régler seuils et âge minimum des comptes |
-| `/setup voir` | Afficher la configuration |
+| **`/setup`** | **Crée tout le serveur en une commande** (rôles, catégories, salons, permissions, panneau) |
+| `/config voir` | Afficher la configuration |
+| `/config salons` | Réaffecter les salons utilisés par le bot |
+| `/config roles` | Réaffecter les rôles |
+| `/config règlement` | Modifier le texte du règlement |
+| `/config antiraid` | Régler seuils et âge minimum des comptes |
+| `/config panneau` | Republier le panneau de vérification |
 
 ### Protection — *Gérer le serveur*
 | Commande | Rôle |

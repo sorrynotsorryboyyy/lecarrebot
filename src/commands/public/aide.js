@@ -24,13 +24,12 @@ export async function execute(interaction) {
       {
         name: '⚙️ Configuration',
         value:
-          '`/setup auto` — Configuration automatique complète\n' +
-          '`/setup salons` — Définir les salons\n' +
-          '`/setup roles` — Définir les rôles\n' +
-          '`/setup panneau` — Republier le panneau de vérification\n' +
-          '`/setup règlement` — Modifier le règlement\n' +
-          '`/setup antiraid` — Régler la protection\n' +
-          '`/setup voir` — Voir la configuration',
+          '`/setup` — **Crée tout le serveur** (rôles, catégories, salons, panneau)\n' +
+          '`/config voir` — Voir la configuration\n' +
+          '`/config salons` · `roles` — Réaffecter salons et rôles\n' +
+          '`/config règlement` — Modifier le règlement\n' +
+          '`/config antiraid` — Régler la protection\n' +
+          '`/config panneau` — Republier le panneau',
       },
       {
         name: '🛡️ Protection',
