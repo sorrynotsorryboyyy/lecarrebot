@@ -168,6 +168,18 @@ export async function execute(interaction) {
     );
   }
 
+  // Trace complète côté serveur : l'embed tronque à 5 avertissements et
+  // 1024 caractères, les logs Railway gardent tout.
+  log.info(
+    `/setup sur ${guild.name} — `
+    + `${report.ranks.length} rang(s), ${report.identity.length} rôle(s) d'identité, `
+    + `${report.channels.length} salon(s), ${report.warnings.length} avertissement(s)`,
+  );
+  if (report.identity.length > 0) {
+    log.info(`Identité : ${report.identity.map((x) => `${x.name} (${x.status})`).join(', ')}`);
+  }
+  for (const w of report.warnings) log.warn(`  ⚠ ${w.replace(/\*\*/g, '')}`);
+
   return interaction.editReply({ embeds: [buildReport(report)] });
 }
 
@@ -339,6 +351,17 @@ async function ensureRankRoles(guild, cfg, roleIds, report) {
     }
   }
 
+  // Même logique que pour l'identité : un rang non résolu disparaît du
+  // menu sans explication.
+  const unresolved = ALL_RANKS.filter((spec) => !resolved[spec.key]);
+  if (unresolved.length > 0) {
+    report.warnings.push(
+      `${unresolved.length} rang(s) non résolu(s) : ` +
+      unresolved.map((s) => `**${s.name}**`).join(', ') +
+      '. Ils n\'apparaîtront pas dans le menu.',
+    );
+  }
+
   // Le repositionnement a lieu plus tard, dans reorderAllRoles() : il doit
   // connaître les rangs ET les rôles d'identité pour les ranger d'un bloc.
   return resolved;
@@ -448,6 +471,18 @@ async function ensureIdentityRoles(guild, cfg, roleIds, report) {
     } catch (err) {
       report.warnings.push(`Rôle **${spec.name}** non créé : ${err.message}`);
     }
+  }
+
+  // Un rôle non résolu disparaît silencieusement du menu : on nomme
+  // explicitement les manquants, sinon l'admin voit un panneau incomplet
+  // sans savoir lesquels manquent ni pourquoi.
+  const unresolved = ALL_IDENTITY.filter((spec) => !resolved[spec.key]);
+  if (unresolved.length > 0) {
+    report.warnings.push(
+      `${unresolved.length} rôle(s) d'identité non résolu(s) : ` +
+      unresolved.map((s) => `**${s.name}**`).join(', ') +
+      '. Ils n\'apparaîtront pas dans le menu.',
+    );
   }
 
   return resolved;
