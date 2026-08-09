@@ -27,7 +27,7 @@ import {
   ALL_RANKS, FACEIT, PREMIER,
   normalizeRankName, rankByKey, rankKeyForRoleName,
 } from '../../lib/ranks.js';
-import { ALL_IDENTITY, identityKeyForRoleName } from '../../lib/identity.js';
+import { ALL_IDENTITY, identityByKey, identityKeyForRoleName } from '../../lib/identity.js';
 import { buildIdentityPanel, buildRankPanel } from '../../handlers/ranks.js';
 import { buildLfgPanel } from '../../handlers/lfgPanel.js';
 import { parseJsonColumn } from '../../lib/jsonColumn.js';
@@ -192,7 +192,7 @@ export async function execute(interaction) {
  * ferait échouer chaque vérification (`roles.add` sur un ID mort).
  */
 function diagnose(guild, cfg) {
-  const ghosts = { channels: [], roles: [], ranks: [] };
+  const ghosts = { channels: [], roles: [], ranks: [], identity: [] };
 
   for (const [key, column] of Object.entries(CHANNEL_CONFIG_KEYS)) {
     const id = cfg[column];
@@ -211,6 +211,15 @@ function diagnose(guild, cfg) {
   const rankMap = parseRankRoles(cfg.rank_roles);
   for (const [key, id] of Object.entries(rankMap)) {
     if (!guild.roles.cache.has(id)) ghosts.ranks.push({ key, id });
+  }
+
+  // Même contrôle pour l'identité : un rôle supprimé à la main laisse son
+  // identifiant en base. `ensureIdentityRoles` le retrouverait dans la
+  // carte mémorisée, échouerait à le résoudre, et l'option disparaîtrait
+  // du menu sans la moindre erreur.
+  const identityMap = parseJsonColumn(cfg.identity_roles);
+  for (const [key, id] of Object.entries(identityMap)) {
+    if (!guild.roles.cache.has(id)) ghosts.identity.push({ key, id });
   }
 
   return ghosts;
@@ -243,6 +252,19 @@ function applyGhostCleanup(ghosts, cfg, patch, report) {
       report.ghosts.push(`Rang **${rank?.name ?? key}** (supprimé) — référence nettoyée`);
     }
     cfg.rank_roles = map;
+  }
+
+  // Sans ce nettoyage, un rôle d'identité supprimé à la main resterait
+  // référencé et ne serait jamais recréé : l'option disparaîtrait du menu
+  // définitivement.
+  if (ghosts.identity.length > 0) {
+    const map = parseJsonColumn(cfg.identity_roles);
+    for (const { key } of ghosts.identity) {
+      delete map[key];
+      const spec = identityByKey(key);
+      report.ghosts.push(`Rôle **${spec?.name ?? key}** (supprimé) — référence nettoyée`);
+    }
+    cfg.identity_roles = map;
   }
 }
 
