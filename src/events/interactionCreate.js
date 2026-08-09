@@ -19,6 +19,7 @@ import {
   openStratSidePicker,
   publishDraft,
   receiveComposer,
+  receiveEvent,
 } from '../handlers/panel.js';
 import { openStratComposer, receiveStrat } from '../commands/admin/strat.js';
 import { openLfgComposer, publishLfg } from '../handlers/lfgPanel.js';
@@ -210,6 +211,10 @@ async function runModal(interaction) {
 
   if (domain === 'panel' && action === 'submit') {
     return receiveComposer(interaction, arg);
+  }
+
+  if (domain === 'panel' && action === 'event') {
+    return receiveEvent(interaction, arg);
   }
 
   if (domain === 'strat' && action === 'submit') {

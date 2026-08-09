@@ -29,9 +29,7 @@ import {
 } from '../../lib/ranks.js';
 import { ALL_IDENTITY, identityKeyForRoleName } from '../../lib/identity.js';
 import { buildIdentityPanel, buildRankPanel } from '../../handlers/ranks.js';
-import { buildVoicePanel } from '../../handlers/tempVoice.js';
 import { buildLfgPanel } from '../../handlers/lfgPanel.js';
-import { buildHelpEmbed } from '../public/aide.js';
 import { parseJsonColumn } from '../../lib/jsonColumn.js';
 
 /**
@@ -158,7 +156,6 @@ export async function execute(interaction) {
     await publishPanel(guild, created, report);
     await publishRankPanel(guild, created, freshCfg, report);
     await publishStaticPanels(guild, created, freshCfg, report);
-    await publishGuide(guild, created, freshCfg, report);
     await publishIntros(guild, created, report);
 
     // ─── 7. Hiérarchie ───────────────────────────────────────────
@@ -462,12 +459,12 @@ async function ensureIdentityRoles(guild, cfg, roleIds, report) {
  * que /setup reste relançable sans empiler les messages.
  */
 async function publishStaticPanels(guild, created, cfg, report) {
+  // Le panneau de gestion vocale n'est PAS publié ici : il est posté dans
+  // le chat du salon vocal à sa création, seul endroit où il s'adresse à
+  // quelqu'un qui a effectivement un salon à gérer.
   const panels = [
     { key: 'roles', prefix: 'identity:', build: () => buildIdentityPanel(cfg) },
-    // Recherche et gestion vocale cohabitent : on cherche des mates et on
-    // règle son salon au même moment.
     { key: 'lfg', prefix: 'lfgpanel:', build: () => buildLfgPanel() },
-    { key: 'lfg', prefix: 'voice:', build: () => buildVoicePanel() },
   ];
 
   for (const panel of panels) {
@@ -476,55 +473,14 @@ async function publishStaticPanels(guild, created, cfg, report) {
 
     try {
       const channel = await guild.channels.fetch(channelId);
-      const existing = await channel.messages.fetch({ limit: 15 });
 
       const payload = panel.build();
       if (!payload || payload.components?.length === 0) continue;
 
-      const already = existing.find((m) =>
-        m.author.id === guild.client.user.id
-        && m.components?.[0]?.components?.[0]?.customId?.startsWith(panel.prefix),
-      );
-
-      if (already) {
-        await already.edit(payload);
-        continue;
-      }
-
-      await channel.send(payload);
+      await republishPanel(channel, panel.prefix, payload);
     } catch (err) {
       report.warnings.push(`Panneau **${panel.key}** non publié : ${err.message}`);
     }
-  }
-}
-
-/**
- * Publie le guide dans #👋-bienvenue.
- * Sans composant : on le repère par son titre pour ne pas l'empiler.
- */
-async function publishGuide(guild, created, cfg, report) {
-  const channelId = created.welcome;
-  if (!channelId) return;
-
-  try {
-    const channel = await guild.channels.fetch(channelId);
-    const existing = await channel.messages.fetch({ limit: 20 });
-
-    const embed = buildHelpEmbed(guild, cfg);
-
-    const already = existing.find((m) =>
-      m.author.id === guild.client.user.id
-      && m.embeds?.[0]?.title?.includes('Bienvenue sur le serveur'),
-    );
-
-    if (already) {
-      await already.edit({ embeds: [embed] });
-      return;
-    }
-
-    await channel.send({ embeds: [embed] });
-  } catch (err) {
-    report.warnings.push(`Guide non publié : ${err.message}`);
   }
 }
 
@@ -735,34 +691,44 @@ async function repairOverwrites(channel, access, ids, spec, report) {
   return repaired;
 }
 
-/** Publie le panneau de choix des rangs dans le salon 🎭-roles. */
+/**
+ * Republie un panneau du bot dans un salon.
+ *
+ * On supprime les anciennes versions avant de reposter, plutôt que de les
+ * éditer : l'édition échouait dès que le panneau sortait de la fenêtre de
+ * lecture, et le contenu restait figé sur une version obsolète. Reposter
+ * garantit que le panneau affiché correspond toujours au code.
+ */
+async function republishPanel(channel, prefix, payload) {
+  // 50 messages : large de quoi couvrir plusieurs panneaux empilés par
+  // des exécutions successives.
+  const existing = await channel.messages.fetch({ limit: 50 });
+
+  const mine = existing.filter((m) =>
+    m.author.id === channel.client.user.id
+    && m.components?.[0]?.components?.[0]?.customId?.startsWith(prefix),
+  );
+
+  for (const message of mine.values()) {
+    await message.delete().catch(() => {});
+  }
+
+  await channel.send(payload);
+}
+
+/** Publie les panneaux de rangs et d'identité dans le salon 🎭-roles. */
 async function publishRankPanel(guild, created, cfg, report) {
   const channelId = created.roles;
   if (!channelId) return;
 
   try {
     const channel = await guild.channels.fetch(channelId);
-    const existing = await channel.messages.fetch({ limit: 10 });
 
     const panel = buildRankPanel(cfg);
     // Aucun rang résolu : inutile de poster un panneau vide.
     if (panel.components.length === 0) return;
 
-    // Dédoublonnage par composant : /setup est relançable, elle ne doit
-    // pas empiler les panneaux.
-    const already = existing.find((m) =>
-      m.author.id === guild.client.user.id
-      && m.components?.[0]?.components?.[0]?.customId?.startsWith('ranks:'),
-    );
-
-    if (already) {
-      // Le panneau existe : on le met à jour plutôt que d'en poster un
-      // second, pour refléter les rangs nouvellement créés.
-      await already.edit(panel);
-      return;
-    }
-
-    await channel.send(panel);
+    await republishPanel(channel, 'ranks:', panel);
   } catch (err) {
     report.warnings.push(`Panneau des rangs non publié : ${err.message}`);
   }

@@ -61,10 +61,22 @@ export async function createTempChannel(member, hubChannel) {
     [channel.id, guild.id, member.id],
   );
 
+  let moved = true;
   await member.voice.setChannel(channel).catch(() => {
     // Le membre a quitté avant le déplacement : on nettoie.
+    moved = false;
     channel.delete('Propriétaire parti avant le déplacement').catch(() => {});
   });
+
+  if (!moved) return channel;
+
+  // Les salons vocaux Discord ont un chat intégré : le panneau de gestion
+  // y est posté à la création. C'est le seul endroit qui a du sens — dans
+  // un salon permanent, il s'adresserait à des gens sans salon à gérer.
+  await channel.send({
+    content: `${member}`,
+    ...buildVoicePanel(),
+  }).catch(() => {});
 
   return channel;
 }
@@ -136,20 +148,25 @@ export async function reconcileTempChannels(client) {
   if (cleaned > 0) log.info(`${cleaned} salon(s) vocal(aux) temporaire(s) nettoyé(s)`);
 }
 
-/** Panneau de contrôle, publié dans #🤖-commandes. */
+/**
+ * Panneau de contrôle, posté dans le chat du salon vocal à sa création.
+ *
+ * Il vit là et nulle part ailleurs : dans un salon permanent, il
+ * s'adresserait à des membres qui n'ont aucun salon à gérer.
+ */
 export function buildVoicePanel() {
   const embed = new EmbedBuilder()
     .setColor(COLORS.primary)
-    .setTitle('🔊 Gérer ton salon vocal')
+    .setTitle('🔊 Ton salon vocal')
     .setDescription(
-      'Rejoins **➕ Créer un salon** pour obtenir ton propre vocal.\n\n' +
-      'Une fois dedans, utilise les boutons ci-dessous :\n\n' +
+      'Ce salon est à toi ! Utilise les boutons ci-dessous pour le gérer :\n\n' +
       '> ✏️ **Renommer** — change le nom de ton salon\n' +
       '> 👥 **Limite** — fixe le nombre de places\n' +
       '> 🔒 **Privé / Public** — verrouille ou ouvre l\'accès\n' +
       '> ➕ **Inviter** — autorise un membre précis\n' +
       '> 👢 **Expulser** — éjecte quelqu\'un de ton salon\n' +
-      '> 👑 **Transférer** — cède la propriété',
+      '> 👑 **Transférer** — cède la propriété\n\n' +
+      'Le salon disparaîtra automatiquement quand tout le monde l\'aura quitté.',
     )
     .setFooter({ text: 'Seul le propriétaire du salon peut utiliser ces boutons.' });
 
