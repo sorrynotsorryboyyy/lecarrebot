@@ -13,10 +13,18 @@ export const AGE = [
   { key: 'age-18', name: '🌱 -18', color: 0x27ae60, emoji: '🌱', aliases: ['-18', 'mineur'] },
 ];
 
+/**
+ * Genre.
+ *
+ * Les symboles ♂️ ♀️ ⚧️ sont des caractères Unicode anciens suivis d'un
+ * sélecteur de variante (U+FE0F). Discord les refuse dans les options de
+ * menu (COMPONENT_INVALID_EMOJI) — le panneau entier échouait à cause du
+ * seul ⚧️. On utilise des emoji pleinement supportés.
+ */
 export const GENDER = [
-  { key: 'g_h', name: '♂️ Homme', color: 0x3498db, emoji: '♂️', aliases: ['homme', 'h', 'male'] },
-  { key: 'g_f', name: '♀️ Femme', color: 0xe91e63, emoji: '♀️', aliases: ['femme', 'f', 'female'] },
-  { key: 'g_a', name: '⚧️ Autre', color: 0x9b59b6, emoji: '⚧️', aliases: ['autre', 'other'] },
+  { key: 'g_h', name: '👨 Homme', color: 0x3498db, emoji: '👨', aliases: ['homme', 'h', 'male', '♂️ Homme'] },
+  { key: 'g_f', name: '👩 Femme', color: 0xe91e63, emoji: '👩', aliases: ['femme', 'f', 'female', '♀️ Femme'] },
+  { key: 'g_a', name: '🧑 Autre', color: 0x9b59b6, emoji: '🧑', aliases: ['autre', 'other', '⚧️ Autre'] },
 ];
 
 export const PLAYSTYLE = [
@@ -53,6 +61,23 @@ export const IDENTITY_GROUPS = {
 
 /** Tous les rôles d'identité, groupes confondus. */
 export const ALL_IDENTITY = [...AGE, ...GENDER, ...PLAYSTYLE];
+
+/**
+ * Un emoji est-il acceptable dans une option de menu Discord ?
+ *
+ * Discord rejette les symboles Unicode anciens complétés par un sélecteur
+ * de variante (U+FE0F) — ♂️ ♀️ ⚧️ par exemple. Un seul emoji invalide fait
+ * échouer la publication du panneau ENTIER, avec une erreur qui ne dit pas
+ * lequel : mieux vaut le détecter ici.
+ */
+export function isSafeEmoji(emoji) {
+  if (!emoji) return false;
+  const points = [...emoji].map((c) => c.codePointAt(0));
+
+  // Les emoji « modernes » vivent au-delà de U+1F000 et n'ont pas besoin
+  // de sélecteur ; c'est le cas sûr.
+  return points.length === 1 && points[0] >= 0x1f000;
+}
 
 /** Retrouve une définition par sa clé. */
 export function identityByKey(key) {

@@ -38,6 +38,16 @@ export const parseRankRoles = parseJsonColumn;
  * d'identité (`identity_roles`). Discord plafonne à 5 rangées par
  * message, d'où deux panneaux distincts plutôt qu'un seul saturé.
  */
+/**
+ * Retire l'emoji de tête d'un libellé, s'il correspond à celui du rôle.
+ * Comparaison exacte : une expression générique amputerait « Faceit 1-3 »
+ * de son premier mot.
+ */
+function stripLeadingEmoji(name, emoji) {
+  if (!emoji || !name.startsWith(emoji)) return name;
+  return name.slice(emoji.length).trim() || name;
+}
+
 export function buildSelectRows(groups, roleMap, domain) {
   const rows = [];
 
@@ -48,7 +58,10 @@ export function buildSelectRows(groups, roleMap, domain) {
     const options = group.ranks
       .filter((spec) => roleMap[spec.key])
       .map((spec) => new StringSelectMenuOptionBuilder()
-        .setLabel(spec.name)
+        // Le nom du rôle porte déjà son emoji : Discord l'affichant à
+        // part, on le retire du libellé pour éviter le doublon. On ne
+        // retire QUE l'emoji lui-même — « Faceit 1-3 » doit rester intact.
+        .setLabel(stripLeadingEmoji(spec.name, spec.emoji))
         .setValue(spec.key)
         .setEmoji(spec.emoji));
 

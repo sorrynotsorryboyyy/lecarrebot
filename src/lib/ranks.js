@@ -18,7 +18,9 @@
  * plus depuis le passage à CS2 en 2023 — ne pas les réintroduire.
  */
 export const PREMIER = [
-  { key: 'p1', name: '1k-3k',   color: 0xb0c3d9, emoji: '⬜', aliases: ['0-3k', '13k'] },
+  // ⬜ (U+2B1C) est un symbole Unicode ancien : accepté par Discord, mais
+  // ⚪ appartient au bloc emoji moderne et ne risque aucun rejet.
+  { key: 'p1', name: '1k-3k',   color: 0xb0c3d9, emoji: '⚪', aliases: ['0-3k', '13k'] },
   { key: 'p2', name: '3k-6k',   color: 0x5e98d9, emoji: '🟦', aliases: [] },
   { key: 'p3', name: '6k-10k',  color: 0x4b69ff, emoji: '🔵', aliases: ['610k'] },
   { key: 'p4', name: '10k-13k', color: 0x8847ff, emoji: '🟣', aliases: [] },
