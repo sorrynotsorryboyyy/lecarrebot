@@ -475,7 +475,17 @@ async function publishStaticPanels(guild, created, cfg, report) {
       const channel = await guild.channels.fetch(channelId);
 
       const payload = panel.build();
-      if (!payload || payload.components?.length === 0) continue;
+
+      // Un panneau sans composant signale que les rôles n'ont pas été
+      // résolus : on le dit plutôt que de sauter en silence, sinon
+      // l'admin ne comprend pas pourquoi rien n'apparaît.
+      if (!payload || payload.components?.length === 0) {
+        report.warnings.push(
+          `Panneau **${panel.key}** vide : aucun rôle résolu. ` +
+          'Vérifie que le bot peut voir et gérer ces rôles.',
+        );
+        continue;
+      }
 
       await republishPanel(channel, panel.prefix, payload);
     } catch (err) {
@@ -883,6 +893,21 @@ function buildReport(report) {
       + (adopted ? `, **${adopted}** adopté(s)` : '')
       + (rankKept ? `, ${rankKept} réutilisé(s)` : '');
 
+  // Les rôles déjà connus comptent aussi : sans eux, un serveur déjà
+  // configuré afficherait « 0 » et laisserait croire à un échec.
+  const idCreated = report.identity.filter((x) => x.status === 'créé').length;
+  const idAdopted = report.identity.filter((x) => x.status === 'adopté').length;
+  const idKept = report.identity.length - idCreated - idAdopted;
+
+  const identityLine = report.identity.length === 0
+    ? null
+    : `🧩 Rôles d'identité : **${report.identity.length}** actif(s)`
+      + ` (${[
+        idCreated ? `${idCreated} créé(s)` : null,
+        idAdopted ? `${idAdopted} adopté(s)` : null,
+        idKept ? `${idKept} réutilisé(s)` : null,
+      ].filter(Boolean).join(', ')})`;
+
   const embed = new EmbedBuilder()
     .setColor(report.warnings.length > 0 ? COLORS.warning : COLORS.success)
     .setTitle('✅ Serveur configuré')
@@ -890,12 +915,7 @@ function buildReport(report) {
       [
         line('🎭 Rôles', r),
         rankLine,
-        report.identity.length > 0
-          ? `🧩 Rôles d'identité : **${report.identity.filter((x) => x.status === 'créé').length}** créé(s)`
-            + (report.identity.filter((x) => x.status === 'adopté').length
-              ? `, **${report.identity.filter((x) => x.status === 'adopté').length}** adopté(s)`
-              : '')
-          : null,
+        identityLine,
         line('📂 Catégories', c),
         line('📁 Salons', ch),
         report.repaired > 0
