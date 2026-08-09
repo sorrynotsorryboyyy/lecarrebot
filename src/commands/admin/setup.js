@@ -538,15 +538,17 @@ async function publishStaticPanels(guild, created, cfg, report) {
       // l'admin ne comprend pas pourquoi rien n'apparaît.
       if (!payload || payload.components?.length === 0) {
         report.warnings.push(
-          `Panneau **${panel.key}** vide : aucun rôle résolu. ` +
+          `Panneau **${panel.key}** (${panel.prefix}) vide : aucun rôle résolu. ` +
           'Vérifie que le bot peut voir et gérer ces rôles.',
         );
+        log.warn(`Panneau « ${panel.prefix} » vide — aucun composant construit`);
         continue;
       }
 
       await republishPanel(channel, panel.prefix, payload);
     } catch (err) {
       report.warnings.push(`Panneau **${panel.key}** non publié : ${err.message}`);
+      log.error(`Panneau « ${panel.prefix} » non publié`, err);
     }
   }
 }
@@ -771,16 +773,33 @@ async function republishPanel(channel, prefix, payload) {
   // des exécutions successives.
   const existing = await channel.messages.fetch({ limit: 50 });
 
+  // Le customId peut arriver en camelCase (objet discord.js) ou en
+  // snake_case (données brutes de l'API selon le type de composant) :
+  // lire une seule des deux formes laisserait des doublons en place.
+  const idOf = (row) => {
+    const c = row?.components?.[0];
+    return c?.customId ?? c?.custom_id ?? null;
+  };
+
   const mine = existing.filter((m) =>
     m.author.id === channel.client.user.id
-    && m.components?.[0]?.components?.[0]?.customId?.startsWith(prefix),
+    && String(idOf(m.components?.[0]) ?? '').startsWith(prefix),
   );
 
+  let deleted = 0;
   for (const message of mine.values()) {
-    await message.delete().catch(() => {});
+    const ok = await message.delete().then(() => true).catch(() => false);
+    if (ok) deleted++;
   }
 
-  await channel.send(payload);
+  const sent = await channel.send(payload);
+
+  log.info(
+    `Panneau « ${prefix} » republié dans #${channel.name} — `
+    + `${deleted} ancien(s) supprimé(s), nouveau message ${sent.id}`,
+  );
+
+  return { deleted, messageId: sent.id };
 }
 
 /** Publie les panneaux de rangs et d'identité dans le salon 🎭-roles. */
@@ -792,12 +811,19 @@ async function publishRankPanel(guild, created, cfg, report) {
     const channel = await guild.channels.fetch(channelId);
 
     const panel = buildRankPanel(cfg);
-    // Aucun rang résolu : inutile de poster un panneau vide.
-    if (panel.components.length === 0) return;
+
+    if (panel.components.length === 0) {
+      report.warnings.push(
+        'Panneau des rangs vide : aucun rang résolu. Relance `/setup`.',
+      );
+      log.warn('Panneau « ranks: » vide — aucun composant construit');
+      return;
+    }
 
     await republishPanel(channel, 'ranks:', panel);
   } catch (err) {
     report.warnings.push(`Panneau des rangs non publié : ${err.message}`);
+    log.error('Panneau « ranks: » non publié', err);
   }
 }
 
