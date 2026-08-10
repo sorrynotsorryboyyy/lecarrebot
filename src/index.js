@@ -16,7 +16,8 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,   // privilégié — "Server Members" dans le portail
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent, // privilégié — "Message Content" dans le portail
-    GatewayIntentBits.GuildVoiceStates, // vocaux à la demande et XP vocal
+    GatewayIntentBits.GuildVoiceStates, // vocaux à la demande
+    GatewayIntentBits.GuildInvites,     // suivi « invité par X »
   ],
   // Permet de répondre aux interactions sur des membres non mis en cache.
   partials: [Partials.GuildMember, Partials.Channel, Partials.Message],
@@ -111,7 +112,7 @@ main().catch((err) => {
       '  et active LES DEUX :\n' +
       '    • SERVER MEMBERS INTENT\n' +
       '    • MESSAGE CONTENT INTENT\n\n' +
-      '  Le second est nécessaire aux protections média et au système d\'XP.',
+      '  Le second est nécessaire aux protections média.',
     );
     process.exit(1);
   }

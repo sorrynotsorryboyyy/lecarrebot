@@ -1,6 +1,6 @@
-import { MessageFlags } from 'discord.js';
+import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { query } from '../db/index.js';
-import { buildLfgMessage } from '../lib/embeds.js';
+import { buildLfgMessage, toMessage } from '../lib/embeds.js';
 
 /** Recharge une annonce et ses inscrits, puis réécrit le message d'origine. */
 async function refresh(interaction, postId) {
@@ -16,7 +16,7 @@ async function refresh(interaction, postId) {
   const author = await interaction.client.users.fetch(post.user_id).catch(() => interaction.user);
 
   await interaction.message.edit(
-    buildLfgMessage({
+    toMessage(buildLfgMessage({
       id: post.id,
       author,
       mode: post.mode,
@@ -25,7 +25,7 @@ async function refresh(interaction, postId) {
       note: post.note,
       joined: joins.map((j) => j.user_id),
       closed: post.closed,
-    }),
+    })),
   );
 
   return post;
@@ -115,7 +115,7 @@ export async function closeLfg(interaction, postId) {
 
   // Seuls l'auteur et les modérateurs peuvent fermer une annonce.
   const isAuthor = post.user_id === interaction.user.id;
-  const isMod = interaction.memberPermissions?.has('ManageMessages');
+  const isMod = interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages);
 
   if (!isAuthor && !isMod) {
     return interaction.reply({

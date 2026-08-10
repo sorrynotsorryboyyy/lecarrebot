@@ -137,7 +137,7 @@ export async function liftLockdown(guild) {
 
 /**
  * Verrouille l'écriture dans tous les salons textuels pour @everyone.
- * Utilisé par `/lockdown channels` — indépendant du lockdown anti-raid,
+ * Utilisé par `/lockdown salons` — indépendant du lockdown anti-raid,
  * qui, lui, ne concerne que les arrivées.
  */
 export async function setChannelsLocked(guild, locked) {

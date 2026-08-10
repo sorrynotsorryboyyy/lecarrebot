@@ -20,25 +20,6 @@ import { parseJsonColumn } from '../lib/jsonColumn.js';
  */
 
 /**
- * Conservé pour compatibilité : la lecture tolérante des colonnes JSONB
- * vit désormais dans lib/jsonColumn.js, partagée par tous les appelants.
- */
-export const parseRankRoles = parseJsonColumn;
-
-/**
- * Construit les menus déroulants, une rangée par série.
- *
- * Limites Discord respectées : 25 options par menu (on en a 7 et 4) et
- * 5 rangées par message (on en a 2).
- */
-/**
- * Construit les rangées de menus pour un ensemble de groupes.
- *
- * Générique : sert aux rangs CS2 (`rank_roles`) comme aux rôles
- * d'identité (`identity_roles`). Discord plafonne à 5 rangées par
- * message, d'où deux panneaux distincts plutôt qu'un seul saturé.
- */
-/**
  * Retire l'emoji de tête d'un libellé, s'il correspond à celui du rôle.
  * Comparaison exacte : une expression générique amputerait « Faceit 1-3 »
  * de son premier mot.
@@ -48,6 +29,14 @@ function stripLeadingEmoji(name, emoji) {
   return name.slice(emoji.length).trim() || name;
 }
 
+/**
+ * Construit les rangées de menus pour un ensemble de groupes.
+ *
+ * Générique : sert aux rangs CS2 (`rank_roles`) comme aux rôles d'identité
+ * (`identity_roles`). Limites Discord respectées : 25 options par menu (on
+ * en a 7 au plus) et 5 rangées par message, d'où deux panneaux distincts
+ * plutôt qu'un seul saturé.
+ */
 export function buildSelectRows(groups, roleMap, domain) {
   const rows = [];
 
@@ -89,12 +78,12 @@ export function buildSelectRows(groups, roleMap, domain) {
 
 /** Menus des rangs CS2 (Premier + Faceit). */
 export function buildRankMenus(cfg) {
-  return buildSelectRows(RANK_SERIES, parseRankRoles(cfg?.rank_roles), 'ranks');
+  return buildSelectRows(RANK_SERIES, parseJsonColumn(cfg?.rank_roles), 'ranks');
 }
 
 /** Menus des rôles d'identité (âge, genre, style de jeu). */
 export function buildIdentityMenus(cfg) {
-  return buildSelectRows(IDENTITY_GROUPS, parseRankRoles(cfg?.identity_roles), 'identity');
+  return buildSelectRows(IDENTITY_GROUPS, parseJsonColumn(cfg?.identity_roles), 'identity');
 }
 
 /** Panneau permanent publié dans #🎭-roles. */
@@ -129,7 +118,7 @@ export async function setRank(interaction, groupId, cfg, domain = 'ranks') {
   const group = groups[groupId];
   if (!group) return;
 
-  const map = parseRankRoles(isIdentity ? cfg?.identity_roles : cfg?.rank_roles);
+  const map = parseJsonColumn(isIdentity ? cfg?.identity_roles : cfg?.rank_roles);
   const member = interaction.member;
 
   // Tous les rôles du groupe, pour retirer les anciens choix.
@@ -200,7 +189,7 @@ export function buildIdentityPanel(cfg) {
   // On liste nommément chaque rôle disponible : un menu seul n'indique pas
   // ce qu'il contient tant qu'on ne l'a pas ouvert.
   const list = (group) => group.ranks
-    .map((spec) => `${spec.emoji} **${spec.name.replace(/^\S+\s/, '')}**`)
+    .map((spec) => `${spec.emoji} **${stripLeadingEmoji(spec.name, spec.emoji)}**`)
     .join(' · ');
 
   const embed = new EmbedBuilder()
@@ -217,7 +206,7 @@ export function buildIdentityPanel(cfg) {
         value: `${list(IDENTITY_GROUPS.age)}\n*Pour les salons et événements adaptés.*`,
       },
       {
-        name: '⚧️ Genre',
+        name: '🧑 Genre',
         value: `${list(IDENTITY_GROUPS.gender)}\n*Entièrement facultatif.*`,
       },
       {
@@ -230,9 +219,9 @@ export function buildIdentityPanel(cfg) {
   return { embeds: [embed], components: buildIdentityMenus(cfg) };
 }
 
-/** Lit les rangs actuels d'un membre — utilisé par /profil et /stats. */
+/** Lit les rangs actuels d'un membre — utilisé par /profil. */
 export function readMemberRanks(member, cfg) {
-  const map = parseRankRoles(cfg?.rank_roles);
+  const map = parseJsonColumn(cfg?.rank_roles);
   const result = {};
 
   for (const series of Object.values(RANK_SERIES)) {
@@ -247,7 +236,7 @@ export function readMemberRanks(member, cfg) {
 
 /** Lit les rôles d'identité d'un membre. Le style de jeu peut être multiple. */
 export function readMemberIdentity(member, cfg) {
-  const map = parseRankRoles(cfg?.identity_roles);
+  const map = parseJsonColumn(cfg?.identity_roles);
   const result = {};
 
   for (const group of Object.values(IDENTITY_GROUPS)) {

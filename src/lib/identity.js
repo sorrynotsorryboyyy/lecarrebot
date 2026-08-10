@@ -62,23 +62,6 @@ export const IDENTITY_GROUPS = {
 /** Tous les rôles d'identité, groupes confondus. */
 export const ALL_IDENTITY = [...AGE, ...GENDER, ...PLAYSTYLE];
 
-/**
- * Un emoji est-il acceptable dans une option de menu Discord ?
- *
- * Discord rejette les symboles Unicode anciens complétés par un sélecteur
- * de variante (U+FE0F) — ♂️ ♀️ ⚧️ par exemple. Un seul emoji invalide fait
- * échouer la publication du panneau ENTIER, avec une erreur qui ne dit pas
- * lequel : mieux vaut le détecter ici.
- */
-export function isSafeEmoji(emoji) {
-  if (!emoji) return false;
-  const points = [...emoji].map((c) => c.codePointAt(0));
-
-  // Les emoji « modernes » vivent au-delà de U+1F000 et n'ont pas besoin
-  // de sélecteur ; c'est le cas sûr.
-  return points.length === 1 && points[0] >= 0x1f000;
-}
-
 /** Retrouve une définition par sa clé. */
 export function identityByKey(key) {
   return ALL_IDENTITY.find((r) => r.key === key) ?? null;

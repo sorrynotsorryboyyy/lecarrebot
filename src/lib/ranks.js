@@ -2,8 +2,8 @@
  * Rangs CS2 — source unique de vérité.
  *
  * Consommée par /setup (création et réconciliation des rôles), le menu de
- * sélection (handlers/ranks.js), /profil, /stats et /recherche. Toute évolution
- * des paliers se fait ici, et nulle part ailleurs.
+ * sélection (handlers/ranks.js) et /profil. Toute évolution des paliers se
+ * fait ici, et nulle part ailleurs.
  *
  * Deux séries indépendantes : un membre peut porter un rang Premier ET un
  * rang Faceit, mais un seul par série.
@@ -65,11 +65,6 @@ export function rankByKey(key) {
   return ALL_RANKS.find((r) => r.key === key) ?? null;
 }
 
-/** Retrouve la série à laquelle appartient une clé de rang. */
-export function seriesOfKey(key) {
-  return Object.values(RANK_SERIES).find((s) => s.ranks.some((r) => r.key === key)) ?? null;
-}
-
 /**
  * Normalise un nom de rôle en vue d'une comparaison tolérante.
  *
@@ -129,12 +124,4 @@ export function rankKeyForRoleName(name) {
     if (candidate.replace(/[^0-9+]/g, '') === digits) return key;
   }
   return null;
-}
-
-/** Options de rang proposées par /recherche (limite Discord : 25 choix). */
-export function lfgRankChoices() {
-  return [
-    ...ALL_RANKS.map((r) => ({ name: r.name, value: r.name })),
-    { name: 'Peu importe', value: 'Peu importe' },
-  ];
 }

@@ -3,7 +3,7 @@ import { buildPanelMenu } from '../../handlers/panel.js';
 
 export const data = new SlashCommandBuilder()
   .setName('panel')
-  .setDescription('Panel de publication — annonces, news, vote')
+  .setDescription('Panel de publication — annonces, tournois, giveaways, strats')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
 
 export async function execute(interaction) {
