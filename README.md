@@ -1,265 +1,310 @@
-# 🎮 CarréBot
+# CarréBot
 
-Bot Discord de communauté gaming (CS2/CSGO) : vérification anti-bot, règlement obligatoire, protection anti-raid, recherche de mates, tournois et giveaways.
+Bot Discord d'une communauté **Counter-Strike 2** : vérification par captcha,
+anti-raid, recherche de coéquipiers, tournois, giveaways, tickets de support
+et statistiques Faceit / Steam.
 
----
-
-## Ce que fait le bot
-
-### 🔐 Vérification à l'arrivée (2 étapes)
-
-1. **Défi anti-bot** — un des trois types tirés au hasard :
-   - reconnaissance de **couleur** (carré pivoté sur fond bruité),
-   - lecture d'un **code** de 5 caractères déformés,
-   - petit **calcul** (sans image, résiste à l'OCR).
-
-   3 tentatives, réponse stockée côté serveur, 4 propositions par défi.
-
-2. **Règlement** — affiché seulement après le défi réussi. Le rôle `✅ Vérifié`
-   (celui qui ouvre les salons) n'est attribué **qu'après acceptation**.
-
-Un membre qui n'a pas fait les deux étapes ne voit rien d'autre que `#🔐-verification`.
-
-### 🛡️ Anti-raid
-
-- **Comptes récents** : alerte dans les logs, expulsion automatique si un lockdown est actif.
-- **Vagues d'arrivées** : N arrivées en X secondes → **lockdown automatique**.
-- Pendant un lockdown, les vérifications sont **gelées** : le raid reste bloqué à la porte.
-- `/lockdown salons` coupe l'écriture partout en une commande.
-
-### 🎮 Communauté
-
-- `/lfg` — annonce de recherche de mates (mode, rang, places, note libre), avec boutons Rejoindre/Quitter/Fermer et **MP automatique à l'auteur** quand quelqu'un rejoint.
-
-### 🏆 Administration
-
-- `/tournoi` — création, inscriptions par bouton, liste des participants, clôture.
-- `/giveaway` — lancement avec durée, tirage automatique à l'échéance, `relancer` pour retirer au sort.
-- `/mod` — warn, mute, kick, ban, purge, avec contrôle de hiérarchie des rôles et logs.
+Écrit en JavaScript (ESM), discord.js v14, PostgreSQL, déployé sur Railway.
 
 ---
 
-## Installation
-
-### 1. Créer l'application Discord
-
-1. Va sur le [Discord Developer Portal](https://discord.com/developers/applications) → **New Application**.
-2. Onglet **Bot** → **Reset Token** → copie le token.
-3. Toujours dans **Bot**, active les **Privileged Gateway Intents** :
-   - ✅ **SERVER MEMBERS INTENT** (obligatoire — sans lui, le bot ne voit pas les arrivées)
-4. Onglet **OAuth2 → URL Generator** :
-   - Scopes : `bot` + `applications.commands`
-   - Permissions : `Administrator` (le plus simple), ou au minimum :
-     Gérer les rôles, Gérer les salons, Expulser, Bannir, Exclure temporairement,
-     Gérer les messages, Lire/Envoyer des messages, Intégrer des liens, Joindre des fichiers.
-5. Ouvre l'URL générée et invite le bot sur ton serveur.
-
-### 2. Déployer sur Railway
-
-1. Pousse ce dossier sur un dépôt GitHub.
-2. Sur [Railway](https://railway.app) : **New Project → Deploy from GitHub repo**.
-3. **Ajoute une base de données** : bouton **New → Database → Add PostgreSQL**.
-4. Dans le service du bot, onglet **Variables**, ajoute :
-
-   | Variable | Valeur |
-   |---|---|
-   | `DISCORD_TOKEN` | ton token |
-   | `CLIENT_ID` | l'Application ID |
-   | `GUILD_ID` | l'ID de ton serveur |
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
-
-   > `${{Postgres.DATABASE_URL}}` est une **référence** Railway : tape-la telle quelle,
-   > Railway la remplace par l'URL réelle de ta base.
-
-5. Le bot démarre et crée ses tables tout seul.
-
-### 3. Enregistrer les commandes slash
-
-À faire **une fois**, et à refaire à chaque modification d'une commande.
-
-Depuis ton PC (avec un `.env` rempli) :
+## Démarrage rapide
 
 ```bash
 npm install
-npm run deploy
+cp .env.example .env     # puis remplis DISCORD_TOKEN, CLIENT_ID, DATABASE_URL
+npm run deploy           # enregistre les commandes auprès de Discord
+npm start
 ```
 
-Ou depuis Railway : onglet du service → **Settings → Deploy → Custom Start Command**,
-lance temporairement `npm run deploy`, puis remets `npm start`.
+Une fois le bot en ligne sur ton serveur, lance **`/setup`** : il crée
+l'intégralité de la structure (rôles, catégories, salons, permissions) et
+publie les panneaux interactifs.
 
-> Avec `GUILD_ID` : commandes disponibles **immédiatement** sur ton serveur.
-> Sans `GUILD_ID` : déploiement global, propagé par Discord en ~1 heure.
+### Prérequis
 
-### 4. Configurer le serveur
+- **Node.js 20 ou plus**
+- Une base **PostgreSQL** (Railway en fournit une en un clic)
+- Les **deux intents privilégiés** activés dans le
+  [Developer Portal](https://discord.com/developers/applications) →
+  ton application → **Bot** → *Privileged Gateway Intents* :
+  - ✅ **SERVER MEMBERS INTENT** — arrivées et attribution des rôles
+  - ✅ **MESSAGE CONTENT INTENT** — politiques média
 
-Dans Discord, en tant qu'administrateur, **une seule commande** :
+  Sans eux, le bot refuse de démarrer avec un message explicite.
 
-```
-/setup
-```
+### Permissions du bot
 
-Elle construit l'intégralité du serveur :
+Invite-le avec au minimum : *Gérer le serveur*, *Gérer les rôles*,
+*Gérer les salons*, *Expulser*, *Bannir*, *Modérer les membres*,
+*Gérer les messages*, *Déplacer les membres*.
 
-| | Détail |
-|---|---|
-| **3 rôles** | `👑 Admin`, `🛡️ Modérateur`, `🎮 Membre` — permissions et ordre hiérarchique corrects |
-| **11 rangs CS2** | 7 paliers Premier + 4 niveaux Faceit, auto-attribuables |
-| **6 catégories** | 🚪 Arrivée · 💬 Communauté · 🎮 Gaming · 🏆 Événements · 🔊 Vocaux · 🛡️ Staff |
-| **24 salons** | textuels et vocaux, chacun avec ses permissions |
-| **Permissions** | `@everyone` ne voit que `#🔐-verification` ; tout le reste exige le rôle Membre |
-| **Contenus** | règlement (avec bouton), panneau de vérification et menus de rangs |
+> **Important** — le rôle du bot doit se trouver **au-dessus** de tous les
+> rôles qu'il attribue (Membre, rangs, identité). `/setup` le vérifie et te
+> prévient si ce n'est pas le cas.
 
-### 🔁 Réutilisation de vos rôles existants
-
-`/setup` **adopte** vos rôles au lieu d'en créer des doublons. La comparaison
-ignore la casse, les emoji, les espaces et les tirets :
-
-`3K-6K` · `6K - 10K` · `🔫 20K +` → tous reconnus comme des rangs.
-
-Vos rôles **Fondateur** et **Amis** sont détectés, reçoivent l'accès aux
-salons membres, et ne sont **jamais** modifiés — ni couleur, ni permissions,
-ni position. Le rôle `✅ Vérifié` créé par une version précédente est
-renommé `🎮 Membre` **sur place**, sans que personne ne perde son accès.
-
-### 🧹 Auto-réparation
-
-À chaque exécution, `/setup` :
-
-- **détecte les références fantômes** (salon ou rôle supprimé mais toujours
-  enregistré) et nettoie la configuration ;
-- **répare les permissions dérivées** — un salon membres ayant perdu son
-  `deny ViewChannel` redevient invisible aux non-vérifiés ;
-- **conserve** les permissions que vous avez ajoutées à la main ;
-- **ne touche pas** aux salons déplacés dans une autre catégorie.
-
-Un serveur sain ne déclenche aucune modification.
-
-`/setup` est **idempotent** : relancez-la autant de fois que voulu, elle
-réutilise ce qui existe déjà au lieu de créer des doublons. Pratique pour
-réparer un salon supprimé par erreur.
-
-> Par défaut, les salons qui existaient **avant** le setup sont aussi masqués
-> aux non-vérifiés. Pour les laisser tels quels :
-> `/setup verrouiller_existant:false`
-
-Les ajustements ultérieurs passent par `/config` (voir plus bas).
-
-> ⚠️ **Point crucial** : dans **Paramètres du serveur → Rôles**, le rôle du bot doit être
-> **au-dessus** du rôle `✅ Vérifié`. Sinon Discord refuse au bot de l'attribuer.
-> Le bot te prévient s'il détecte ce problème.
-
-Vérifie ensuite avec `/setup voir`.
+*Gérer le serveur* est indispensable au suivi « invité par X » : sans elle,
+ce champ n'apparaît simplement pas.
 
 ---
 
-## Développement local
+## Variables d'environnement
 
-```bash
-cp .env.example .env    # puis remplis-le
-npm install
-npm run deploy          # une fois
-npm start               # ou: npm run dev (rechargement auto)
-```
+| Variable | Requise | Rôle |
+|---|:---:|---|
+| `DISCORD_TOKEN` | ✅ | Token du bot |
+| `CLIENT_ID` | ✅ | Identifiant de l'application |
+| `DATABASE_URL` | ✅ | Connexion PostgreSQL |
+| `GUILD_ID` | — | Déploiement instantané sur un seul serveur (sinon global, ~1 h) |
+| `DATABASE_PUBLIC_URL` | — | Repli si le réseau privé Railway est injoignable |
+| `LOG_LEVEL` | — | `debug` \| `info` \| `warn` \| `error` (défaut `info`) |
+| `FACEIT_API_KEY` | — | Statistiques Faceit ([clé gratuite](https://developers.faceit.com)) |
+| `STEAM_API_KEY` | — | Statistiques Steam ([clé gratuite](https://steamcommunity.com/dev/apikey)) |
 
-Il te faut un PostgreSQL local, ou colle simplement l'URL publique de ta base Railway
-dans `DATABASE_URL` (onglet Postgres → **Connect → Public Network**).
+Les deux dernières sont **facultatives** : sans elles, le bot fonctionne
+normalement et `/lier` répond que la source n'est pas configurée.
 
 ---
 
 ## Commandes
 
-### Membres
-| Commande | Rôle |
+### Pour les membres
+
+| Commande | Description |
 |---|---|
-| `/lfg` | Chercher des mates (mode, rang, places, note) |
-| `/profil` | Fiche membre : rangs, arrivée, activité LFG |
-| `/stats` | Répartition des rangs de la communauté |
-| `/tournoi liste` | Voir les tournois ouverts |
-| `/aide` | Liste des commandes |
+| `/aide` | Guide du serveur |
+| `/profil [membre]` | Rangs, arrivée, invitations, statistiques |
+| `/lier faceit\|steam\|voir\|actualiser\|delier` | Lier un compte de jeu |
 
-Le choix du rang se fait dans **#🎭-roles**, via deux menus déroulants
-(Premier et Faceit). Les deux séries sont indépendantes : changer de cote
-Premier ne touche pas au niveau Faceit, et un seul rang par série est actif
-à la fois.
+### Pour le staff
 
-### Configuration — *Administrateur*
-| Commande | Rôle |
-|---|---|
-| **`/setup`** | **Crée tout le serveur en une commande** (rôles, catégories, salons, permissions, panneau) |
-| `/config voir` | Afficher la configuration |
-| `/config salons` | Réaffecter les salons utilisés par le bot |
-| `/config roles` | Réaffecter les rôles |
-| `/config règlement` | Modifier le texte du règlement |
-| `/config antiraid` | Régler seuils et âge minimum des comptes |
-| `/config panneau` | Republier le panneau de vérification |
-
-### Protection — *Gérer le serveur*
-| Commande | Rôle |
-|---|---|
-| `/lockdown on` / `off` | Mode urgence anti-raid |
-| `/lockdown salons` | Verrouiller/déverrouiller l'écriture partout |
-| `/lockdown statut` | État de la protection |
-
-### Modération — *Exclure des membres*
-| Commande | Rôle |
-|---|---|
-| `/mod warn` · `warns` · `unwarn` | Avertissements |
-| `/mod mute` · `unmute` | Exclusion temporaire (max 28j) |
-| `/mod kick` · `ban` | Expulsion / bannissement |
-| `/mod purge` | Suppression en masse (max 100, <14 jours) |
-
-### Événements — *Gérer les événements*
-| Commande | Rôle |
-|---|---|
-| `/tournoi créer` · `participants` · `fermer` | Tournois |
-| `/giveaway lancer` · `terminer` · `relancer` | Giveaways |
-
-**Format des durées** : `30m`, `2h`, `3d`, `1w`, ou composé (`1d6h`, `2h30m`).
-
----
-
-## Réglages anti-raid
-
-Valeurs par défaut, modifiables avec `/setup antiraid` :
-
-| Réglage | Défaut | Effet |
+| Commande | Permission | Description |
 |---|---|---|
-| `arrivées` | 5 | Nombre d'arrivées déclenchant le lockdown |
-| `fenêtre` | 10 s | Fenêtre de mesure |
-| `âge_min` | 7 jours | En-dessous : alerte, et expulsion si lockdown actif |
+| `/setup` | Administrateur | Crée toute la structure du serveur |
+| `/reset` | Propriétaire | ⚠️ Supprime **tous** les salons |
+| `/config` | Gérer le serveur | Réglages du bot sans redéploiement |
+| `/panel` | Gérer le serveur | Panneau de publication |
+| `/vip ajouter\|retirer\|liste` | Administrateur | Gestion des membres Elite |
+| `/mod warn\|warns\|unwarn\|mute\|unmute\|kick\|ban\|purge` | Modérer | Modération |
+| `/lockdown on\|off\|salons\|statut` | Gérer le serveur | Verrouillage d'urgence |
+| `/tournoi créer\|liste\|participants\|fermer` | Gérer les événements | Tournois |
+| `/giveaway lancer\|terminer\|relancer` | Gérer les événements | Giveaways |
+| `/strat` | Gérer les messages | Stratégies et line-ups |
 
-Sur un serveur en pleine croissance, monte le seuil (ex. `10` arrivées / `10s`)
-pour éviter les lockdowns pendant une vague d'arrivées légitime.
+#### `/config` en détail
+
+| Sous-commande | Effet |
+|---|---|
+| `voir` | Vue d'ensemble de la configuration |
+| `reglement` | Modifie le texte du règlement (formulaire) |
+| `antiraid` | Seuils de détection et âge minimum des comptes |
+| `salon` | Rattache un salon à une fonction du bot |
+| `media` | Ce qui est autorisé dans un salon |
+| `banniere` | Bannière par défaut d'un type de publication |
 
 ---
 
-## Résolution de problèmes
+## Structure créée par `/setup`
 
-| Symptôme | Cause | Solution |
+### Rôles
+
+| Rôle | Attribution | Rôle dans le serveur |
 |---|---|---|
-| « Impossible de t'attribuer le rôle » | Rôle du bot trop bas | Monte le rôle du bot au-dessus de `✅ Vérifié` |
-| Les commandes n'apparaissent pas | Commandes non enregistrées | `npm run deploy`, puis Ctrl+R dans Discord |
-| Le bot ne réagit pas aux arrivées | Intent manquant | Active **SERVER MEMBERS INTENT** dans le portail |
-| Tout est perdu après un redéploiement | Pas de base Postgres | Vérifie que `DATABASE_URL` pointe vers `${{Postgres.DATABASE_URL}}` |
-| `ENOTFOUND postgres.railway.internal` | Postgres est dans **un autre projet** Railway | Le réseau privé `*.railway.internal` ne relie que des services d'un **même projet**. Mets l'**URL publique** (`DATABASE_PUBLIC_URL`, host en `.proxy.rlwy.net`) dans `DATABASE_URL`. Le bot active SSL automatiquement. |
-| Les nouveaux voient tous les salons | Salons non verrouillés | Relance `/setup auto`, ou ferme les salons à `@everyone` |
+| 👑 **Admin** | Manuelle | Administrateur |
+| 🛡️ **Modérateur** | Manuelle | Modération |
+| 💎 **Elite** | `/vip ajouter` | Avantages (voir plus bas) |
+| 🔷 **Losange Vérifié** | **Manuelle uniquement** | Accès à l'espace privé |
+| 🎮 **Membre** | Après vérification | Accès au serveur |
+
+S'y ajoutent **11 rangs CS2** (7 Premier, 4 Faceit) et **7 rôles d'identité**
+(âge, genre, style de jeu), tous auto-attribuables depuis `#🎭-roles`.
+
+Les rôles **Fondateur** et **Amis**, s'ils existent, sont détectés et
+reçoivent l'accès aux salons membres — sans jamais être modifiés.
+
+### Salons
+
+| Catégorie | Accès | Salons |
+|---|---|---|
+| 🚪 ARRIVÉE | Public | `🔐-verification` `👋-bienvenue` `🎭-roles` `🎫-support` |
+| 💬 COMMUNAUTÉ | Membres | `📢-annonces` `💬-general` `🎬-clips-et-memes` `💡-suggestions` |
+| 🎮 GAMING | Membres | `🎮-recherche-mates` `📊-strats-et-tips` |
+| 🏆 ÉVÉNEMENTS | Membres | `🏆-tournois` `🎁-giveaways` |
+| 🔷 LOSANGE | **Losange** | `🔷-discussion` `🔷-recherche-mates` `➕ Créer un salon Losange` |
+| 🎞️ KLIPIT | Membres | `🚀-a-venir` |
+| 💎 ELITE | **Elite** | `💎-salon-elite` `💎 Elite` (vocal) |
+| 🔊 VOCAUX | Membres | `➕ Créer un salon` `💤 AFK` |
+| 🛡️ STAFF | Staff | `🛡️-staff-chat` `🛠️-panel-staff` `📋-logs-carrebot` `🛡️ Staff` |
+| 🎫 TICKETS | Staff | *(parent des tickets ouverts)* |
+
+`/setup` est **idempotent** : relançable sans risque. Il adopte les salons et
+rôles existants (par identifiant mémorisé, puis par nom), les renomme sur
+place plutôt que d'en créer des doublons, et ne supprime que ce qu'il a
+lui-même créé.
 
 ---
 
-## Structure
+## Fonctionnement
+
+### Vérification en deux étapes
+
+Un arrivant ne voit que `#🔐-verification`. Il doit :
+
+1. **Résoudre un captcha** — image de couleur, code déformé ou calcul mental,
+   tiré au sort. Trois tentatives, la réponse est stockée côté serveur.
+2. **Accepter le règlement** — modifiable par `/config reglement`.
+
+Le rôle 🎮 Membre n'est accordé qu'après **les deux** étapes. Une carte de
+bienvenue est alors publiée dans `#👋-bienvenue`, avec le parrain et son
+nombre d'invitations.
+
+### Anti-raid
+
+- **Compte trop récent** (défaut : moins de 7 jours) → alerte dans les logs ;
+  expulsion seulement si un lockdown est actif.
+- **Vague d'arrivées** (défaut : 5 en 10 s) → lockdown automatique, qui gèle
+  toutes les vérifications en cours.
+
+Réglable avec `/config antiraid`.
+
+### Recherche de coéquipiers
+
+Un panneau à boutons dans `#🎮-recherche-mates` : un clic sur le mode, un
+formulaire court, puis le choix de **qui notifier** — personne, les joueurs
+de ton rang, ou un rang précis. L'annonce publiée porte les boutons
+*Rejoindre* / *Quitter* / *Fermer*, et l'auteur reçoit un message privé à
+chaque arrivée.
+
+### Salons vocaux à la demande
+
+Rejoindre `➕ Créer un salon` crée un vocal personnel et y déplace le membre.
+Le panneau de gestion (renommer, limiter, verrouiller, inviter, expulser,
+céder) est posté dans le chat du salon. Il disparaît dès qu'il se vide ; si
+le propriétaire part, la propriété passe au plus ancien présent.
+
+L'espace Losange a **son propre générateur**, dont les salons héritent de ses
+permissions.
+
+### Politiques média
+
+| Salon | Autorisé |
+|---|---|
+| `#💬-general` | GIF seulement |
+| `#🎬-clips-et-memes` | Tout |
+
+Le contrôle croise l'extension **et** le type MIME : un `.png` renommé `.gif`
+ne passe pas. Le staff et les membres **Elite** ne sont jamais filtrés.
+Modifiable par salon avec `/config media`.
+
+### Publications
+
+Le panneau permanent de `#🛠️-panel-staff` publie annonces, news, tournois,
+giveaways et stratégies. Le formulaire recueille l'essentiel, puis un
+**aperçu** — le rendu réel — permet d'ajouter :
+
+- une **image en bannière**, affichée au-dessus du titre ;
+- un **bouton de lien**, une **couleur**, des **champs libres** ;
+- une **mention** ciblée (@everyone, @here, ou aucune) ;
+- une **publication programmée**, qui survit aux redémarrages.
+
+Les brouillons sont enregistrés en base : un redéploiement ne fait rien
+perdre.
+
+### Tickets
+
+Le bouton de `#🎫-support` ouvre un salon privé entre le membre et le staff,
+rangé sous 🎫 TICKETS. Un seul ticket ouvert par membre. À la fermeture, la
+conversation est transcrite dans un fichier joint au journal, puis le salon
+est supprimé.
+
+### Statistiques CS2
+
+`/lier faceit` et `/lier steam` rattachent un compte au profil.
+
+- **Faceit** : niveau, Elo, K/D, winrate.
+- **Steam** : heures de jeu, kills, victoires. Le profil doit avoir
+  « Détails du jeu » en **public**.
+
+Les données sont **mises en cache 6 heures**. `/profil` lit toujours le
+cache — jamais l'API — et déclenche un rafraîchissement en arrière-plan
+quand il a vieilli.
+
+> Valve n'expose aucune API publique pour la cote **Premier** : elle reste
+> déclarative, via les menus de `#🎭-roles`.
+
+### Avantages Elite
+
+| Avantage | Détail |
+|---|---|
+| Salons dédiés | Catégorie 💎 ELITE, texte et vocal |
+| Vocaux | Limite jusqu'à 99 places au lieu de 10 |
+| Giveaways | Chances **doublées** au tirage (annoncé publiquement) |
+| Tournois | Accès anticipé aux inscriptions (`elite_avant`) |
+| Média | Exempté des restrictions, comme le staff |
+
+### Invitations
+
+Le bot photographie les compteurs d'invitation et les compare à chaque
+arrivée : celle dont le compteur a bougé désigne le parrain. Le résultat
+apparaît dans la carte de bienvenue et dans `/profil`.
+
+Si deux personnes arrivent dans le même intervalle, l'origine est
+indécidable — le champ est alors omis plutôt qu'attribué au hasard.
+
+---
+
+## Développement
+
+```bash
+npm run dev        # démarrage avec rechargement automatique
+npm run check      # contrôle syntaxique de tous les fichiers
+npm test           # tests unitaires (fonctions pures)
+npm run verify     # les deux — à lancer avant chaque push
+```
+
+Le bot est déployé par simple push, **sans intégration continue** : une
+erreur de syntaxe part directement en production. `npm run verify` est le
+garde-fou.
+
+### Organisation
 
 ```
 src/
 ├─ index.js              Point d'entrée, chargement dynamique
-├─ deploy-commands.js    Enregistrement des commandes slash
+├─ deploy-commands.js    Enregistrement des commandes
 ├─ commands/
-│  ├─ admin/             setup, mod, lockdown, tournoi, giveaway
-│  └─ public/            lfg, aide
-├─ events/               ready, guildMemberAdd, interactionCreate
-├─ handlers/             verification, antiraid, lfg, tournoi, giveaway, logs
-├─ lib/                  config, logger, captcha, time
-└─ db/                   schéma PostgreSQL + accès
+│  ├─ admin/             Commandes du staff
+│  └─ public/            Commandes des membres
+├─ events/               Écouteurs Discord
+├─ handlers/             Logique métier
+├─ lib/                  Données et fonctions pures
+└─ db/                   Schéma et accès PostgreSQL
 ```
 
-Les boutons suivent la convention `domaine:action:argument`, routés dans
-[interactionCreate.js](src/events/interactionCreate.js).
+**Conventions**
+
+- Les `customId` suivent `domaine:action[:argument]`, découpés par le
+  routeur unique de `events/interactionCreate.js`.
+- `lib/blueprint.js` décrit le serveur en **données** : ajouter un salon ne
+  demande qu'une ligne.
+- Les tâches planifiées interrogent la base plutôt que d'utiliser des
+  minuteries : elles survivent aux redéploiements.
+- Le schéma se crée et se migre au démarrage, de façon idempotente.
+
+---
+
+## Dépannage
+
+| Symptôme | Cause probable |
+|---|---|
+| `disallowed intents` au démarrage | Les deux intents privilégiés ne sont pas activés |
+| Les rôles ne s'attribuent pas | Le rôle du bot est trop bas dans la hiérarchie |
+| Le panneau des rôles est incomplet | Un rôle a été supprimé à la main — relance `/setup` |
+| « Invité par » n'apparaît jamais | Permission *Gérer le serveur* manquante |
+| `ENOTFOUND *.railway.internal` | Base dans un autre projet — utilise `DATABASE_PUBLIC_URL` |
+| Les stats Steam sont vides | Profil privé : passe « Détails du jeu » en public |
+| Une commande n'apparaît pas | Relance `npm run deploy` |
+
+`/setup` produit un rapport détaillé : rôles adoptés, salons créés ou
+renommés, références nettoyées et avertissements. **Lis-le en entier** après
+chaque exécution.
