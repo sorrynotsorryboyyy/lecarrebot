@@ -10,6 +10,7 @@ import { getGuildConfig, query } from '../db/index.js';
 import { COLORS } from '../lib/config.js';
 import { log } from '../lib/logger.js';
 import { sendLog } from './logs.js';
+import { countInvites, inviterOfMember } from './invites.js';
 
 const MAX_ATTEMPTS = 3;
 
@@ -23,7 +24,7 @@ const MAX_ATTEMPTS = 3;
  * entrer des membres qui n'ont jamais vu le règlement.
  */
 
-/** Panneau permanent posté dans #verification (bouton de démarrage). */
+/** Panneau permanent posté dans #🔐-verification (bouton de démarrage). */
 export function buildVerifyPanel() {
   const embed = new EmbedBuilder()
     .setColor(COLORS.primary)
@@ -330,7 +331,22 @@ async function sendWelcomeCard(guild, member, cfg) {
         value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`,
         inline: true,
       },
-    )
+    );
+
+  // Parrainage, quand il a pu être déterminé à l'arrivée. Le champ est
+  // simplement absent sinon — une invitation supprimée juste après usage ou
+  // deux arrivées simultanées rendent l'origine indécidable.
+  const inviterId = await inviterOfMember(guild.id, member.id).catch(() => null);
+  if (inviterId) {
+    const total = await countInvites(guild.id, inviterId).catch(() => 0);
+    embed.addFields({
+      name: 'Invité par',
+      value: `<@${inviterId}> · **${total}** invitation${total > 1 ? 's' : ''}`,
+      inline: true,
+    });
+  }
+
+  embed
     .setFooter({ text: 'Pense à choisir ton rang dans #🎭-roles' })
     .setTimestamp();
 

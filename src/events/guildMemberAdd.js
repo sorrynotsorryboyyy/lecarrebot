@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { getGuildConfig } from '../db/index.js';
 import { inspectJoin } from '../handlers/antiraid.js';
+import { resolveInviter } from '../handlers/invites.js';
 import { log } from '../lib/logger.js';
 
 export const name = Events.GuildMemberAdd;
@@ -9,8 +10,15 @@ export async function execute(member) {
   if (member.user.bot) return;
 
   try {
-    // L'anti-raid passe en premier : inutile d'attribuer un rôle ou d'envoyer
-    // un message d'accueil à un compte qu'on s'apprête à expulser.
+    // Avant tout le reste, y compris l'anti-raid : l'attribution se déduit de
+    // l'écart entre deux relevés des compteurs d'invitation. Sauter cette
+    // étape pour un compte expulsé laisserait le cache décalé, et la
+    // prochaine arrivée serait attribuée au mauvais parrain.
+    await resolveInviter(member).catch((e) =>
+      log.debug(`Invitation non résolue : ${e.message}`));
+
+    // L'anti-raid ensuite : inutile d'attribuer un rôle ou d'envoyer un
+    // message d'accueil à un compte qu'on s'apprête à expulser.
     const kicked = await inspectJoin(member);
     if (kicked) return;
 
