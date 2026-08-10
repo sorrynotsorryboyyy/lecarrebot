@@ -11,7 +11,7 @@ import { sendLog } from '../../handlers/logs.js';
 
 export const data = new SlashCommandBuilder()
   .setName('vip')
-  .setDescription('Gestion des membres Elite (VIP)')
+  .setDescription('Gestion des membres Elite')
   .addSubcommand((s) =>
     s.setName('ajouter')
       .setDescription('Accorder le statut VIP à un membre')
@@ -90,7 +90,7 @@ async function addVip(interaction) {
   );
 
   await user.send(
-    `💎 Tu es désormais **Elite (VIP)** sur **${interaction.guild.name}** !\n\n` +
+    `💎 Tu es désormais **Elite** sur **${interaction.guild.name}** !\n\n` +
     `**Motif :** ${reason}\n` +
     (expiresAt
       ? `**Durée :** ${formatDuration(expiresAt.getTime() - Date.now())}\n`
@@ -114,7 +114,7 @@ async function addVip(interaction) {
 
   return interaction.reply({
     content:
-      `💎 ${user} est désormais **Elite (VIP)**` +
+      `💎 ${user} est désormais **Elite**` +
       (expiresAt ? ` pour **${formatDuration(expiresAt.getTime() - Date.now())}**.` : ' (illimité).'),
     flags: MessageFlags.Ephemeral,
   });
@@ -159,7 +159,7 @@ async function listVips(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.primary)
-    .setTitle('💎 Membres Elite (VIP)')
+    .setTitle('💎 Membres Elite')
     .setDescription(
       rows.length === 0
         ? 'Aucun membre VIP pour le moment.'
@@ -197,7 +197,7 @@ export async function expireVips(client) {
       if (member && cfg.vip_role_id) {
         await member.roles.remove(cfg.vip_role_id, 'Statut VIP expiré').catch(() => {});
         await member.send(
-          `💎 Ton statut **Elite (VIP)** sur **${guild.name}** a expiré.\n\n` +
+          `💎 Ton statut **Elite** sur **${guild.name}** a expiré.\n\n` +
           'Merci de ton soutien ! Contacte le staff pour le renouveler.',
         ).catch(() => {});
       }

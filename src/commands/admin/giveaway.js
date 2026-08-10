@@ -5,7 +5,8 @@ import {
 } from 'discord.js';
 import { query } from '../../db/index.js';
 import { parseDuration } from '../../lib/time.js';
-import { buildGiveawayMessage } from '../../lib/embeds.js';
+import { createGiveaway } from '../../lib/events.js';
+import { isValidUrl } from '../../lib/publication.js';
 import { endGiveaway } from '../../handlers/giveaway.js';
 
 export const data = new SlashCommandBuilder()
@@ -26,11 +27,21 @@ export const data = new SlashCommandBuilder()
           .setMinValue(1).setMaxValue(20))
       .addBooleanOption((o) =>
         o.setName('vip_uniquement')
-          .setDescription('Réserver ce giveaway aux membres Elite (VIP)'))
+          .setDescription('Réserver ce giveaway aux membres Elite'))
       .addStringOption((o) =>
         o.setName('conditions')
           .setDescription('Conditions affichées (ex : inviter 10 personnes). Sépare par « | »')
-          .setMaxLength(500)))
+          .setMaxLength(500))
+      .addStringOption((o) =>
+        o.setName('image').setDescription('Lien d\'une bannière (https://…)').setMaxLength(500))
+      .addStringOption((o) =>
+        o.setName('mention')
+          .setDescription('Qui notifier ?')
+          .addChoices(
+            { name: '@everyone', value: 'everyone' },
+            { name: '@here',     value: 'here' },
+            { name: 'Personne',  value: 'none' },
+          )))
   .addSubcommand((s) =>
     s.setName('terminer')
       .setDescription('Terminer un giveaway immédiatement')
@@ -68,25 +79,25 @@ async function startGiveaway(interaction) {
 
   const vipOnly = interaction.options.getBoolean('vip_uniquement') ?? false;
   const conditions = interaction.options.getString('conditions')?.trim() || null;
+  const imageUrl = interaction.options.getString('image');
+  const mentionChoice = interaction.options.getString('mention');
 
-  const { rows } = await query(
-    `INSERT INTO giveaways
-       (guild_id, channel_id, prize, winners, ends_at, created_by, vip_only, conditions)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [
-      interaction.guild.id, interaction.channel.id, prize, winners, endsAt,
-      interaction.user.id, vipOnly, conditions,
-    ],
-  );
-  const id = rows[0].id;
+  if (imageUrl && !isValidUrl(imageUrl)) {
+    return interaction.reply({
+      content: '❌ Le lien de l\'image doit commencer par `http://` ou `https://`.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 
-  const message = await interaction.channel.send(
-    buildGiveawayMessage({
-      id, prize, winners, endsAt, entries: 0, ended: false, vipOnly, conditions,
-    }),
-  );
-
-  await query('UPDATE giveaways SET message_id = $2 WHERE id = $1', [id, message.id]);
+  // Publication déléguée au moteur commun, partagé avec le panneau staff.
+  const { id } = await createGiveaway({
+    guildId: interaction.guild.id,
+    channel: interaction.channel,
+    prize, winners, endsAt,
+    createdBy: interaction.user.id,
+    vipOnly, conditions, imageUrl,
+    mention: mentionChoice === 'none' ? null : mentionChoice,
+  });
 
   return interaction.reply({
     content: `🎁 Giveaway lancé (ID \`${id}\`) — fin <t:${Math.floor(endsAt.getTime() / 1000)}:R>.`,

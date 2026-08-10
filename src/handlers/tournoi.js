@@ -1,6 +1,7 @@
 import { MessageFlags } from 'discord.js';
 import { query } from '../db/index.js';
-import { buildTournamentMessage } from '../lib/embeds.js';
+import { buildTournamentMessage, toMessage } from '../lib/embeds.js';
+import { isVip } from '../commands/admin/vip.js';
 
 /** Réécrit le message d'un tournoi à partir de l'état en base. */
 async function refresh(interaction, tournamentId) {
@@ -14,7 +15,7 @@ async function refresh(interaction, tournamentId) {
   );
 
   await interaction.message.edit(
-    buildTournamentMessage({
+    toMessage(buildTournamentMessage({
       id: t.id,
       name: t.name,
       description: t.description,
@@ -23,7 +24,9 @@ async function refresh(interaction, tournamentId) {
       startsAt: t.starts_at,
       signups: signups.map((s) => s.user_id),
       status: t.status,
-    }),
+      imageUrl: t.image_url,
+      publicSignupsAt: t.public_signups_at,
+    })),
   );
 }
 
@@ -36,6 +39,23 @@ export async function joinTournament(interaction, tournamentId) {
       content: '🔒 Les inscriptions de ce tournoi sont fermées.',
       flags: MessageFlags.Ephemeral,
     });
+  }
+
+  // Fenêtre d'accès anticipé : tant qu'elle court, seuls les Elite entrent.
+  // On donne l'heure d'ouverture plutôt qu'un refus sec — le membre saura
+  // quand revenir.
+  if (t.public_signups_at && new Date(t.public_signups_at) > new Date()) {
+    const elite = await isVip(interaction.guild.id, interaction.user.id);
+
+    if (!elite) {
+      const ts = Math.floor(new Date(t.public_signups_at).getTime() / 1000);
+      return interaction.reply({
+        content:
+          '💎 Les inscriptions sont **réservées aux membres Elite** pour le moment.\n\n' +
+          `Ouverture à tous <t:${ts}:R> (<t:${ts}:F>).`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   }
 
   // Insertion et contrôle de capacité en une seule requête : deux clics

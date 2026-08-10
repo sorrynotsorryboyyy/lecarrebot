@@ -7,7 +7,8 @@ import {
 import { query } from '../../db/index.js';
 import { COLORS } from '../../lib/config.js';
 import { parseDuration } from '../../lib/time.js';
-import { buildTournamentMessage } from '../../lib/embeds.js';
+import { createTournament } from '../../lib/events.js';
+import { isValidUrl } from '../../lib/publication.js';
 
 export const data = new SlashCommandBuilder()
   .setName('tournoi')
@@ -34,7 +35,21 @@ export const data = new SlashCommandBuilder()
       .addStringOption((o) =>
         o.setName('description').setDescription('Détails, règles, lots…').setMaxLength(1000))
       .addIntegerOption((o) =>
-        o.setName('équipes').setDescription('Nombre max d\'équipes/joueurs').setMinValue(2).setMaxValue(128)))
+        o.setName('équipes').setDescription('Nombre max d\'équipes/joueurs').setMinValue(2).setMaxValue(128))
+      .addStringOption((o) =>
+        o.setName('image').setDescription('Lien d\'une bannière (https://…)').setMaxLength(500))
+      .addStringOption((o) =>
+        o.setName('elite_avant')
+          .setDescription('Réserver les inscriptions aux Elite pendant… (ex : 12h, 2d)')
+          .setMaxLength(20))
+      .addStringOption((o) =>
+        o.setName('mention')
+          .setDescription('Qui notifier ?')
+          .addChoices(
+            { name: '@everyone', value: 'everyone' },
+            { name: '@here',     value: 'here' },
+            { name: 'Personne',  value: 'none' },
+          )))
   .addSubcommand((s) =>
     s.setName('liste').setDescription('Voir les tournois en cours'))
   .addSubcommand((s) =>
@@ -52,18 +67,26 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
 
-  if (sub === 'créer') return createTournament(interaction);
+  if (sub === 'créer') return handleCreate(interaction);
   if (sub === 'liste') return listTournaments(interaction);
   if (sub === 'participants') return listParticipants(interaction);
   if (sub === 'fermer') return closeTournament(interaction);
 }
 
-async function createTournament(interaction) {
+/**
+ * Création : la commande valide les entrées, le moteur commun publie.
+ * `createTournament` (lib/events.js) sert aussi le panneau de publication —
+ * un seul chemin, donc un seul rendu et un seul jeu de colonnes écrites.
+ */
+async function handleCreate(interaction) {
   const name = interaction.options.getString('nom');
   const format = interaction.options.getString('format');
   const startIn = interaction.options.getString('début');
   const description = interaction.options.getString('description');
   const maxTeams = interaction.options.getInteger('équipes');
+  const imageUrl = interaction.options.getString('image');
+  const eliteBefore = interaction.options.getString('elite_avant');
+  const mentionChoice = interaction.options.getString('mention');
 
   const ms = parseDuration(startIn);
   if (ms === null) {
@@ -73,27 +96,38 @@ async function createTournament(interaction) {
     });
   }
 
+  if (imageUrl && !isValidUrl(imageUrl)) {
+    return interaction.reply({
+      content: '❌ Le lien de l\'image doit commencer par `http://` ou `https://`.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
   const startsAt = new Date(Date.now() + ms);
 
-  const { rows } = await query(
-    `INSERT INTO tournaments
-       (guild_id, channel_id, name, description, format, max_teams, starts_at, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [
-      interaction.guild.id, interaction.channel.id, name, description,
-      format, maxTeams, startsAt, interaction.user.id,
-    ],
-  );
-  const id = rows[0].id;
+  // Fenêtre Elite : bornée au début du tournoi, sinon les inscriptions
+  // s'ouvriraient à tous après coup — ce qui n'aurait aucun sens.
+  let publicSignupsAt = null;
+  if (eliteBefore) {
+    const windowMs = parseDuration(eliteBefore);
+    if (windowMs === null) {
+      return interaction.reply({
+        content: '❌ Durée d\'accès anticipé invalide. Utilise par exemple `12h` ou `2d`.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    publicSignupsAt = new Date(Math.min(Date.now() + windowMs, startsAt.getTime()));
+  }
 
-  const message = await interaction.channel.send(
-    buildTournamentMessage({
-      id, name, description, format, maxTeams,
-      startsAt, signups: [], status: 'open',
-    }),
-  );
-
-  await query('UPDATE tournaments SET message_id = $2 WHERE id = $1', [id, message.id]);
+  const { id } = await createTournament({
+    guildId: interaction.guild.id,
+    channel: interaction.channel,
+    name, description, format, maxTeams, startsAt,
+    createdBy: interaction.user.id,
+    imageUrl,
+    publicSignupsAt,
+    mention: mentionChoice === 'none' ? null : mentionChoice,
+  });
 
   return interaction.reply({
     content: `✅ Tournoi **${name}** créé (ID \`${id}\`).`,
