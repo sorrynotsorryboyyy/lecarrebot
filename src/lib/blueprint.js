@@ -42,6 +42,17 @@ export const ROLES = [
     aliases: ['VIP', 'Elite (VIP)', '💎 Elite (VIP)', 'Premium'],
   },
   {
+    // Attribué UNIQUEMENT à la main par le staff, jamais par le bot : il
+    // atteste d'une vérification humaine (joueur connu, non tricheur, niveau
+    // suffisant). Aucun panneau ni menu ne permet de se l'auto-attribuer.
+    key: 'losange',
+    name: '🔷 Losange Vérifié',
+    color: 0x1f8fff,
+    hoist: true,
+    permissions: [],
+    aliases: ['Losange', 'Losange Verifie', '🔷 Losange', 'Certifié', 'Certifie'],
+  },
+  {
     key: 'verified',
     name: '🎮 Membre',
     color: 0x2ecc71,
@@ -68,9 +79,11 @@ export const PROTECTED_ROLES = [
 /**
  * Catégories et salons.
  * `access` résume qui voit quoi, pour éviter de répéter les overwrites :
- *   'public'    — visible par tous, y compris non vérifiés
- *   'members'   — visible seulement après vérification
- *   'staff'     — visible seulement par le staff
+ *   'public'          — visible par tous, y compris non vérifiés
+ *   'unverified-only' — visible tant qu'on n'est pas vérifié
+ *   'members'         — visible seulement après vérification
+ *   'elite'           — visible seulement par les détenteurs du rôle Elite
+ *   'staff'           — visible seulement par le staff
  */
 export const CATEGORIES = [
   {
@@ -101,6 +114,13 @@ export const CATEGORIES = [
         access: 'members',
         readOnly: true,
       },
+      {
+        key: 'support',
+        name: '🎫-support',
+        topic: 'Besoin d\'aide ? Ouvre un ticket privé avec le staff',
+        access: 'members',
+        readOnly: true,
+      },
     ],
   },
   {
@@ -123,16 +143,13 @@ export const CATEGORIES = [
         mediaPolicy: 'discussion',
       },
       {
-        key: 'memes',
-        name: '😂-memes',
-        topic: 'Vos meilleurs memes — tout est autorisé',
-        mediaPolicy: 'free',
-      },
-      {
+        // Anciennement deux salons (😂-memes et 🎬-clips) : la frontière
+        // n'était pas assez nette pour que les membres choisissent, et la
+        // politique « vidéos seules » rejetait une simple capture d'écran.
         key: 'clips',
-        name: '🎬-clips',
-        topic: 'Vos plus beaux frags — liens et vidéos uniquement',
-        mediaPolicy: 'clips',
+        name: '🎬-clips-et-memes',
+        topic: 'Vos plus beaux frags et vos meilleurs memes — tout est autorisé',
+        mediaPolicy: 'free',
       },
       { key: 'suggestions', name: '💡-suggestions', topic: 'Propose tes idées pour le serveur' },
     ],
@@ -146,12 +163,6 @@ export const CATEGORIES = [
         key: 'lfg',
         name: '🎮-recherche-mates',
         topic: 'Trouve des coéquipiers en un clic — et gère ton salon vocal',
-      },
-      {
-        key: 'cs2',
-        name: '📰-news-cs2',
-        topic: 'Actualités et mises à jour de Counter-Strike 2',
-        readOnly: true,
       },
       {
         key: 'strats',
@@ -175,10 +186,64 @@ export const CATEGORIES = [
       {
         key: 'giveaways',
         name: '🎁-giveaways',
-        topic: 'Giveaways — clique sur 🎉 pour participer, tirage automatique',
+        topic: 'Giveaways — clique sur le bouton pour participer, tirage automatique',
         readOnly: true,
       },
-      { key: 'results', name: '📋-resultats', topic: 'Résultats des tournois', readOnly: true },
+    ],
+  },
+  {
+    // Espace privé des joueurs vérifiés à la main par le staff. Le rôle
+    // n'est jamais attribué automatiquement : c'est ce qui fait toute la
+    // valeur de la catégorie.
+    key: 'losange',
+    name: '🔷 LOSANGE',
+    access: 'losange',
+    channels: [
+      {
+        key: 'losange-chat',
+        name: '🔷-discussion',
+        topic: 'Salon privé des joueurs Losange Vérifié',
+      },
+      {
+        key: 'losange-lfg',
+        name: '🔷-recherche-mates',
+        topic: 'Trouve des coéquipiers vérifiés — entre Losange uniquement',
+      },
+      // Hub vocal dédié : le rejoindre crée un salon personnel dont l'accès
+      // est limité à la catégorie Losange, sans passer par le hub public.
+      // Le nom DOIT différer de celui du hub public : `ensureStructure`
+      // retombe sur une recherche par nom quand l'identifiant est inconnu,
+      // et deux salons homonymes se voleraient mutuellement leur clé.
+      { key: 'losange-voice-hub', name: '➕ Créer un salon Losange', type: 'voice', userLimit: 1 },
+    ],
+  },
+  {
+    // Projet maison présenté à la communauté. Un seul salon pour l'instant :
+    // la catégorie est prête à en accueillir d'autres (bêta, retours, aide)
+    // quand le produit sortira.
+    key: 'klipit',
+    name: '🎞️ KLIPIT',
+    access: 'members',
+    channels: [
+      {
+        key: 'klipit-soon',
+        name: '🚀-a-venir',
+        topic: 'KlipIt — capture de clips nouvelle génération et plateforme de partage',
+        readOnly: true,
+      },
+    ],
+  },
+  {
+    key: 'elite',
+    name: '💎 ELITE',
+    access: 'elite',
+    channels: [
+      {
+        key: 'elite-chat',
+        name: '💎-salon-elite',
+        topic: 'Salon réservé aux membres Elite',
+      },
+      { key: 'elite-voice', name: '💎 Elite', type: 'voice' },
     ],
   },
   {
@@ -199,6 +264,14 @@ export const CATEGORIES = [
     channels: [
       { key: 'staff-chat', name: '🛡️-staff-chat', topic: 'Discussion du staff' },
       {
+        // Porte le panneau de publication en permanence : il ne se perd
+        // plus dans l'historique et tout le staff y accède au même endroit.
+        key: 'staff-panel',
+        name: '🛠️-panel-staff',
+        topic: 'Panneau de publication — annonces, tournois, giveaways, strats',
+        readOnly: true,
+      },
+      {
         key: 'logs',
         name: '📋-logs-carrebot',
         topic: 'Journal des actions du CarréBot',
@@ -206,6 +279,15 @@ export const CATEGORIES = [
       },
       { key: 'staff-voice', name: '🛡️ Staff', type: 'voice' },
     ],
+  },
+  {
+    // Catégorie volontairement vide : elle sert de parent aux salons de
+    // ticket créés à la demande, et disparaît visuellement quand il n'y en a
+    // aucun d'ouvert.
+    key: 'tickets',
+    name: '🎫 TICKETS',
+    access: 'staff',
+    channels: [],
   },
 ];
 
@@ -223,12 +305,16 @@ export const RETIRED_CHANNEL_KEYS = [
   'rules',                    // 📜-reglement — doublon de l'étape 2 de la vérification
   'vote',                     // 🗳️-vote — votes non vérifiables sans webhook
   'profile', 'commands', 'xp', // catégorie 👤 PROFIL
+  'memes',                    // 😂-memes — fusionné dans 🎬-clips-et-memes
+  'cs2',                      // 📰-news-cs2 — sans flux automatisé, restait vide
+  'results',                  // 📋-resultats — aucun code ne l'alimentait
 ];
 
 /**
  * Catégories retirées du plan.
  * Même règle que les salons : supprimées seulement si leur identifiant
- * figure en base, donc si le bot les a créées.
+ * figure en base, donc si le bot les a créées — et seulement si elles sont
+ * vides, pour ne pas emporter des salons ajoutés à la main.
  */
 export const RETIRED_CATEGORY_KEYS = ['profile'];
 
@@ -278,6 +364,31 @@ export function buildOverwrites(access, ids, { readOnly = false } = {}) {
       return [
         { id: ids.everyone, allow: [P.ViewChannel], deny: [P.SendMessages] },
         { id: ids.verified, deny: [P.ViewChannel] },
+        ...staffAllow, ...botAllow,
+      ];
+
+    case 'elite':
+      // Réservé aux détenteurs du rôle Elite. `ids.elite` est fourni en plus
+      // de `ids.protectedRoles` (qui contient déjà le rôle Elite pour lui
+      // ouvrir les salons membres) : les deux champs coexistent pour que
+      // l'accès membres reste inchangé.
+      return [
+        { id: ids.everyone, deny: [P.ViewChannel] },
+        ...(ids.elite
+          ? [{ id: ids.elite, allow: [P.ViewChannel, P.Connect, P.Speak], deny: denyWrite }]
+          : []),
+        ...staffAllow, ...botAllow,
+      ];
+
+    case 'losange':
+      // Espace fermé : le rôle s'attribue à la main, et rien d'autre n'y
+      // donne accès. Le rôle Elite ne l'ouvre pas — les deux paliers sont
+      // indépendants, l'un s'achète ou se récompense, l'autre se mérite.
+      return [
+        { id: ids.everyone, deny: [P.ViewChannel] },
+        ...(ids.losange
+          ? [{ id: ids.losange, allow: [P.ViewChannel, P.Connect, P.Speak], deny: denyWrite }]
+          : []),
         ...staffAllow, ...botAllow,
       ];
 
@@ -344,8 +455,53 @@ export const CHANNEL_INTROS = {
       '**Comment participer ?**\n' +
       '> Clique sur le bouton **S\'inscrire** sous l\'annonce du tournoi.\n' +
       '> Tu peux te désinscrire à tout moment avant le début.\n\n' +
-      '📋 Les résultats sont publiés dans le salon dédié.',
+      '📋 Les résultats sont publiés à la suite de chaque tournoi.',
     footer: 'Les inscriptions se font par bouton, pas par message.',
+  },
+
+  'losange-chat': {
+    color: 0x1f8fff,
+    title: '🔷 Espace Losange',
+    description:
+      'Bienvenue dans l\'espace **Losange Vérifié**.\n\n' +
+      'Cette partie du serveur est réservée aux joueurs **vérifiés à la main ' +
+      'par le staff** : comptes connus, jeu propre, niveau confirmé. ' +
+      'Le rôle ne s\'obtient par aucun menu — il se mérite.\n\n' +
+      '**Ce que tu trouves ici**\n' +
+      '> 🔷 Un salon de discussion entre joueurs vérifiés\n' +
+      '> 🔷 Une recherche de coéquipiers sans passer par le tout-venant\n' +
+      '> 🔷 Ton propre salon vocal, réservé à l\'espace Losange\n\n' +
+      '🤝 Cet espace repose sur la confiance : garde-le à ce niveau.',
+    footer: 'Rôle attribué manuellement par le staff.',
+  },
+
+  'losange-lfg': {
+    color: 0x1f8fff,
+    title: '🔷 Recherche de mates — Losange',
+    description:
+      'Cherche des coéquipiers **parmi les joueurs vérifiés** uniquement.\n\n' +
+      'Écris simplement ce que tu cherches : le mode, ton niveau, ' +
+      'le nombre de places et l\'horaire.\n\n' +
+      '> Exemple : *« Premier 15k, cherche 2 pour du sérieux ce soir 21h »*\n\n' +
+      '🔊 Rejoins **➕ Créer un salon Losange** pour ouvrir ton vocal privé.',
+  },
+
+  'klipit-soon': {
+    color: 0x7c5cff,
+    title: '🎞️ KlipIt — bientôt disponible',
+    description:
+      '**KlipIt**, c\'est deux choses pensées ensemble.\n\n' +
+      '**🎥 Un logiciel de capture nouvelle génération**\n' +
+      '> Enregistre tes meilleures actions sans y penser et sans perdre ' +
+      'd\'images. Découpe, monte et exporte ton clip en quelques secondes, ' +
+      'directement après la partie.\n\n' +
+      '**🌐 Une plateforme pour les partager**\n' +
+      '> Ton profil, tes clips, tes abonnés. Une page perso à ton nom où ' +
+      'ta communauté retrouve tout ce que tu publies — pensée pour le clip ' +
+      'de jeu, pas pour la vidéo longue.\n\n' +
+      '**Ce salon suivra le projet** : avancement, premières images, ' +
+      'ouverture de la bêta et appels aux testeurs.',
+    footer: 'Salon en lecture seule — les annonces arrivent ici.',
   },
 
   giveaways: {
@@ -358,15 +514,6 @@ export const CHANNEL_INTROS = {
       '> Le tirage est automatique à la fin du compte à rebours.\n\n' +
       '🍀 Une seule participation par personne — bonne chance !',
     footer: 'Les gagnants sont mentionnés automatiquement.',
-  },
-
-  results: {
-    color: 0x9b59b6,
-    title: '📋 Résultats',
-    description:
-      'Les **résultats des tournois** et événements sont archivés ici.\n\n' +
-      'Classements, scores et highlights des compétitions passées.',
-    footer: 'Seul le staff peut écrire ici.',
   },
 
   // Note : le salon 🎭-roles reçoit un panneau interactif (publishRankPanel),
@@ -392,7 +539,6 @@ export const CHANNEL_INTROS = {
  */
 export const CHANNEL_CONFIG_KEYS = {
   verify: 'verify_channel_id',
-  rules: 'rules_channel_id',
   logs: 'logs_channel_id',
   lfg: 'lfg_channel_id',
   welcome: 'welcome_channel_id',

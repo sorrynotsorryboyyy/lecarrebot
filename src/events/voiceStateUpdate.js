@@ -41,12 +41,19 @@ export async function execute(oldState, newState) {
   }
 }
 
-/** Arrivée : création du salon personnel si c'est le générateur. */
-async function handleJoin(state, member, channelIds) {
-  const hubId = channelIds['voice-hub'];
+/**
+ * Salons « générateurs ». Chaque espace a le sien : le salon créé hérite des
+ * permissions de la catégorie du hub rejoint, ce qui garde un vocal Losange
+ * dans l'espace Losange et un vocal public dans l'espace public.
+ */
+const VOICE_HUB_KEYS = ['voice-hub', 'losange-voice-hub'];
 
+/** Arrivée : création du salon personnel si c'est un générateur. */
+async function handleJoin(state, member, channelIds) {
   // Le générateur ne sert qu'à déclencher la création : personne n'y reste.
-  if (hubId && state.channelId === hubId) {
+  const isHub = VOICE_HUB_KEYS.some((key) => channelIds[key] === state.channelId);
+
+  if (isHub) {
     await createTempChannel(member, state.channel);
   }
 }

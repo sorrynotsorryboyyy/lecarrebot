@@ -1,7 +1,4 @@
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ChannelType,
   EmbedBuilder,
   MessageFlags,
@@ -17,6 +14,7 @@ import {
   CHANNEL_CONFIG_KEYS,
   CHANNEL_INTROS,
   PROTECTED_ROLES,
+  RETIRED_CATEGORY_KEYS,
   RETIRED_CHANNEL_KEYS,
   ROLES,
   buildOverwrites,
@@ -30,6 +28,8 @@ import {
 import { ALL_IDENTITY, identityByKey, identityKeyForRoleName } from '../../lib/identity.js';
 import { buildIdentityPanel, buildRankPanel } from '../../handlers/ranks.js';
 import { buildLfgPanel } from '../../handlers/lfgPanel.js';
+import { buildPanelMenu } from '../../handlers/panel.js';
+import { buildTicketPanel } from '../../handlers/tickets.js';
 import { parseJsonColumn } from '../../lib/jsonColumn.js';
 
 /**
@@ -112,6 +112,7 @@ export async function execute(interaction) {
     patch.identity_roles = JSON.stringify(identityRoles);
 
     if (roleIds.vip) patch.vip_role_id = roleIds.vip;
+    if (roleIds.losange) patch.losange_role_id = roleIds.losange;
 
     // Une fois les deux familles résolues, on range tout d'un bloc :
     // rangs au-dessus de Membre (ils colorent le pseudo), identité en
@@ -126,6 +127,14 @@ export async function execute(interaction) {
       bot: me.id,
       // Le VIP voit tout ce que voient les membres.
       protectedRoles: [...findProtectedRoles(guild, report), roleIds.vip].filter(Boolean),
+      // Le même rôle, exposé à part pour les salons `access: 'elite'`. Le
+      // garder aussi dans `protectedRoles` préserve l'accès aux salons
+      // membres, qui ne dépend pas de ce champ.
+      elite: roleIds.vip,
+      // Losange Vérifié : n'ouvre QUE sa propre catégorie. Volontairement
+      // absent de `protectedRoles` — un Losange accède aux salons membres
+      // par son rôle Membre, pas par celui-ci.
+      losange: roleIds.losange,
     };
 
     // ─── 4. Catégories et salons ─────────────────────────────────
@@ -158,7 +167,7 @@ export async function execute(interaction) {
     await publishStaticPanels(guild, created, freshCfg, report);
     await publishIntros(guild, created, report);
 
-    // ─── 7. Hiérarchie ───────────────────────────────────────────
+    // ─── 8. Hiérarchie ───────────────────────────────────────────
     checkHierarchy(guild, me, roleIds, report);
   } catch (err) {
     log.error('Échec du setup', err);
@@ -201,14 +210,14 @@ function diagnose(guild, cfg) {
     }
   }
 
-  for (const column of ['verified_role_id', 'unverified_role_id']) {
+  for (const column of ['verified_role_id', 'unverified_role_id', 'vip_role_id', 'losange_role_id']) {
     const id = cfg[column];
     if (id && !guild.roles.cache.has(id)) {
       ghosts.roles.push({ column, id });
     }
   }
 
-  const rankMap = parseRankRoles(cfg.rank_roles);
+  const rankMap = parseJsonColumn(cfg.rank_roles);
   for (const [key, id] of Object.entries(rankMap)) {
     if (!guild.roles.cache.has(id)) ghosts.ranks.push({ key, id });
   }
@@ -237,15 +246,23 @@ function applyGhostCleanup(ghosts, cfg, patch, report) {
     report.ghosts.push(`Salon **${key}** (supprimé) — référence nettoyée`);
   }
 
+  const ROLE_LABELS = {
+    verified_role_id: 'membre',
+    unverified_role_id: 'non-vérifié',
+    vip_role_id: 'Elite',
+    losange_role_id: 'Losange Vérifié',
+  };
+
   for (const { column } of ghosts.roles) {
     cfg[column] = null;
     patch[column] = null;
-    const label = column === 'verified_role_id' ? 'membre' : 'non-vérifié';
-    report.ghosts.push(`Rôle **${label}** (supprimé) — référence nettoyée`);
+    report.ghosts.push(
+      `Rôle **${ROLE_LABELS[column] ?? column}** (supprimé) — référence nettoyée`,
+    );
   }
 
   if (ghosts.ranks.length > 0) {
-    const map = parseRankRoles(cfg.rank_roles);
+    const map = parseJsonColumn(cfg.rank_roles);
     for (const { key } of ghosts.ranks) {
       delete map[key];
       const rank = rankByKey(key);
@@ -266,22 +283,6 @@ function applyGhostCleanup(ghosts, cfg, patch, report) {
     }
     cfg.identity_roles = map;
   }
-}
-
-/**
- * `rank_roles` arrive en objet depuis PostgreSQL (JSONB), mais peut être
- * une chaîne si la colonne a été écrite en texte. On accepte les deux.
- */
-function parseRankRoles(value) {
-  if (!value) return {};
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return {};
-    }
-  }
-  return { ...value };
 }
 
 /**
@@ -318,7 +319,7 @@ function findProtectedRoles(guild, report) {
  * d'Admin sans ce correctif.
  */
 async function ensureRankRoles(guild, cfg, roleIds, report) {
-  const stored = parseRankRoles(cfg.rank_roles);
+  const stored = parseJsonColumn(cfg.rank_roles);
   const resolved = {};
   const claimed = new Set();
   const missing = [];
@@ -423,7 +424,7 @@ async function reorderAllRoles(guild, roleIds, rankRoles, identityRoles, report)
     // Le staff doit rester au-dessus de tout ce bloc : si la pile dépasse
     // la position du rôle le plus bas du staff, on renonce plutôt que de
     // bousculer la hiérarchie du serveur.
-    const staffFloor = [roleIds.admin, roleIds.moderator, roleIds.vip]
+    const staffFloor = [roleIds.admin, roleIds.moderator, roleIds.vip, roleIds.losange]
       .map((id) => guild.roles.cache.get(id)?.position)
       .filter((p) => p != null);
 
@@ -511,7 +512,7 @@ async function ensureIdentityRoles(guild, cfg, roleIds, report) {
 }
 
 /**
- * Publie les panneaux fixes : identité, gestion vocale, profil, vote.
+ * Publie les panneaux fixes : identité, recherche de mates, publication.
  * Chacun se dédoublonne sur le customId de son premier composant, pour
  * que /setup reste relançable sans empiler les messages.
  */
@@ -522,6 +523,10 @@ async function publishStaticPanels(guild, created, cfg, report) {
   const panels = [
     { key: 'roles', prefix: 'identity:', build: () => buildIdentityPanel(cfg) },
     { key: 'lfg', prefix: 'lfgpanel:', build: () => buildLfgPanel() },
+    // Panneau de publication, dans le salon staff : il ne se perd plus dans
+    // l'historique et toute l'équipe y accède au même endroit.
+    { key: 'staff-panel', prefix: 'panel:', build: () => buildPanelMenu() },
+    { key: 'support', prefix: 'ticket:', build: () => buildTicketPanel() },
   ];
 
   for (const panel of panels) {
@@ -560,8 +565,18 @@ async function ensureRoles(guild, cfg, report) {
   // Créés du plus bas au plus haut : chaque `create` place le rôle en haut
   // de ce que le bot peut atteindre, donc l'ordre inverse donne la bonne
   // hiérarchie finale (Admin > Modérateur > Vérifié).
+  // Colonnes mémorisant l'identifiant d'un rôle structurel. Les relire en
+  // priorité permet de retrouver un rôle RENOMMÉ à la main, que la
+  // correspondance par nom manquerait.
+  const KNOWN_COLUMNS = {
+    verified: 'verified_role_id',
+    vip: 'vip_role_id',
+    losange: 'losange_role_id',
+  };
+
   for (const spec of [...ROLES].reverse()) {
-    const knownId = spec.key === 'verified' ? cfg.verified_role_id : null;
+    const column = KNOWN_COLUMNS[spec.key];
+    const knownId = column ? cfg[column] : null;
 
     let role = knownId ? guild.roles.cache.get(knownId) : null;
 
@@ -855,9 +870,43 @@ async function removeRetiredChannels(guild, cfg, report, enabled) {
       report.warnings.push(`Salon **${channel.name}** non supprimé : ${err.message}`);
     }
   }
+
+  // Catégories retirées, même règle. Une catégorie encore peuplée n'est
+  // jamais supprimée : elle contiendrait des salons créés à la main, que
+  // la suppression rendrait orphelins sans prévenir.
+  for (const key of RETIRED_CATEGORY_KEYS) {
+    const id = known[`cat:${key}`];
+    if (!id) continue;
+
+    const category = guild.channels.cache.get(id);
+    if (!category) continue;
+
+    if (category.children?.cache.size > 0) {
+      report.warnings.push(
+        `Catégorie **${category.name}** conservée : elle contient encore des salons.`,
+      );
+      continue;
+    }
+
+    try {
+      const name = category.name;
+      await category.delete('CarréBot — catégorie retirée du plan');
+      report.removed.push(`**${name}** (catégorie)`);
+    } catch (err) {
+      report.warnings.push(`Catégorie **${category.name}** non supprimée : ${err.message}`);
+    }
+  }
 }
 
-/** Masque aux non-vérifiés les salons qui existaient avant le setup. */
+/**
+ * Masque aux non-vérifiés les salons qui existaient avant le setup.
+ *
+ * L'appartenance au plan se juge sur l'IDENTIFIANT, jamais sur le nom :
+ * un salon créé à la main qui porterait par hasard un nom du plan
+ * échapperait autrement au verrouillage. La comparaison par nom subsiste
+ * en second filet, pour les salons du plan que `created` n'aurait pas pu
+ * référencer (création échouée en amont).
+ */
 async function lockLegacyChannels(guild, ids, created, report) {
   const managed = new Set(Object.values(created));
   const blueprintNames = new Set(
@@ -868,6 +917,8 @@ async function lockLegacyChannels(guild, ids, created, report) {
 
   for (const channel of guild.channels.cache.values()) {
     if (managed.has(channel.id)) continue;
+    // Filet secondaire : un salon du plan dont la création a échoué n'a pas
+    // d'identifiant dans `created`, mais ne doit pas être verrouillé.
     if (blueprintNames.has(channel.name)) continue;
 
     try {
@@ -907,10 +958,14 @@ async function publishPanel(guild, created, report) {
 }
 
 /**
- * Poste un embed de présentation dans chaque salon en lecture seule.
+ * Poste un embed de présentation dans les salons qui en ont un.
  *
- * Ces salons resteraient vides et sans explication : l'embed indique à quoi
- * ils servent et comment y participer (boutons plutôt que messages).
+ * Ces salons resteraient sans explication : l'embed indique à quoi ils
+ * servent et comment y participer (boutons plutôt que messages).
+ *
+ * L'intro est ÉPINGLÉE. Dans un salon où les membres écrivent, elle sortirait
+ * sinon de la fenêtre de lecture, et /setup la reposterait à chaque passage.
+ * On la cherche donc parmi les messages épinglés, pas parmi les derniers.
  */
 async function publishIntros(guild, created, report) {
   for (const [key, intro] of Object.entries(CHANNEL_INTROS)) {
@@ -919,10 +974,14 @@ async function publishIntros(guild, created, report) {
 
     try {
       const channel = await guild.channels.fetch(channelId);
-      const existing = await channel.messages.fetch({ limit: 10 });
 
-      // On ne republie pas si le bot a déjà posté ici : /setup est
-      // relançable, elle ne doit pas empiler les présentations.
+      const pinned = await channel.messages.fetchPinned().catch(() => null);
+      const alreadyPinned = pinned?.some((m) => m.author.id === guild.client.user.id);
+      if (alreadyPinned) continue;
+
+      // Repli pour les intros publiées avant l'épinglage : on regarde aussi
+      // les premiers messages du salon.
+      const existing = await channel.messages.fetch({ limit: 10, after: '0' });
       const already = existing.some((m) => m.author.id === guild.client.user.id);
       if (already) continue;
 
@@ -933,7 +992,10 @@ async function publishIntros(guild, created, report) {
 
       if (intro.footer) embed.setFooter({ text: intro.footer });
 
-      await channel.send({ embeds: [embed] });
+      const sent = await channel.send({ embeds: [embed] });
+      // L'épinglage peut échouer (50 épingles max par salon) sans que ce
+      // soit grave : l'intro est publiée, c'est l'essentiel.
+      await sent.pin('CarréBot — présentation du salon').catch(() => {});
     } catch (err) {
       report.warnings.push(`Présentation de **${key}** non publiée : ${err.message}`);
     }
