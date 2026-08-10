@@ -36,23 +36,25 @@ export const MEDIA_POLICIES = {
     allow: ['gif'],
     reason:
       'Dans ce salon, seuls les **GIF** sont autorisés.\n' +
-      'Les images, vidéos et liens externes sont à poster dans les salons dédiés ' +
-      '(**#😂-memes** pour tout, **#🎬-clips** pour les vidéos).',
+      'Les images, vidéos et liens externes sont à poster dans ' +
+      '**#🎬-clips-et-memes**, où tout est permis.',
   },
 
-  // Memes : aucune restriction, invitations Discord comprises.
+  // Aucune restriction, invitations Discord comprises.
   free: {
     allow: ['gif', 'image', 'video', 'link', 'videoLink'],
     reason: null,
   },
 
-  // Clips : vidéos et liens de plateformes vidéo, rien d'autre.
+  // Vidéos et liens de plateformes vidéo, rien d'autre. Plus attribuée à
+  // aucun salon du plan, mais restée disponible : /config peut l'appliquer
+  // à un salon au cas par cas.
   clips: {
     allow: ['video', 'videoLink'],
     reason:
       'Dans ce salon, seuls les **clips vidéo** et les **liens de plateformes** ' +
       '(YouTube, Twitch, Medal, Streamable…) sont autorisés.\n' +
-      'Les images et GIF sont à poster dans **#😂-memes**.',
+      'Les images et GIF sont à poster dans **#🎬-clips-et-memes**.',
   },
 };
 
