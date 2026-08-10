@@ -14,6 +14,11 @@ export const config = {
   // deux projets Railway distincts : le réseau privé ne les relie pas.
   databasePublicUrl: process.env.DATABASE_PUBLIC_URL,
   logLevel: process.env.LOG_LEVEL || 'info',
+  // Clés de stats, toutes deux FACULTATIVES : sans elles, /lier répond que
+  // la source n'est pas configurée, et tout le reste du bot fonctionne.
+  // Elles ne figurent donc jamais dans validateConfig().
+  faceitApiKey: process.env.FACEIT_API_KEY,
+  steamApiKey: process.env.STEAM_API_KEY,
 };
 
 export function validateConfig({ requireGuild = false } = {}) {
