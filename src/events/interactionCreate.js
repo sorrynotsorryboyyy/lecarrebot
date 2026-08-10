@@ -13,16 +13,21 @@ import {
   handleVoiceMemberSelect,
   handleVoiceModal,
 } from '../handlers/tempVoice.js';
+import { saveRules } from '../commands/admin/config.js';
+import { closeTicket, createTicket, openTicketModal } from '../handlers/tickets.js';
 import {
   cancelDraft,
   openComposer,
+  openFieldEditor,
   openStratSidePicker,
   publishDraft,
   receiveComposer,
   receiveEvent,
+  receiveFieldEditor,
+  receiveSelectEditor,
 } from '../handlers/panel.js';
 import { openStratComposer, receiveStrat } from '../commands/admin/strat.js';
-import { openLfgComposer, publishLfg } from '../handlers/lfgPanel.js';
+import { finishLfg, openLfgComposer, publishLfg } from '../handlers/lfgPanel.js';
 import { cancelReset, confirmStep1, confirmStep2 } from '../commands/admin/reset.js';
 import { closeLfg, joinLfg, leaveLfg } from '../handlers/lfg.js';
 import { joinTournament, leaveTournament } from '../handlers/tournoi.js';
@@ -136,7 +141,9 @@ async function runButton(interaction) {
   if (domain === 'panel') {
     if (action === 'publish') return publishDraft(interaction);
     if (action === 'cancel') return cancelDraft(interaction);
-    if (action === 'edit') return openComposer(interaction, arg);
+    // `edit` couvre deux cas : un type publiable rouvre le formulaire
+    // principal, un nom de champ ouvre le réglage correspondant.
+    if (action === 'edit') return openFieldEditor(interaction, arg);
     return;
   }
 
@@ -151,6 +158,13 @@ async function runButton(interaction) {
     // directement par le formulaire de confirmation.
     if (action === 'confirm') return confirmStep1(interaction);
     if (action === 'cancel') return cancelReset(interaction);
+    return;
+  }
+
+  if (domain === 'ticket') {
+    // Ouverture : formulaire du motif, donc pas de defer.
+    if (action === 'open') return openTicketModal(interaction);
+    if (action === 'close') return closeTicket(interaction, Number(arg));
     return;
   }
 }
@@ -180,7 +194,16 @@ async function runSelectMenu(interaction) {
     if (action === 'stratside') {
       return openStratComposer(interaction, arg, interaction.values[0]);
     }
+    // Réglages de l'aperçu qui passent par un menu plutôt qu'un formulaire.
+    if (action === 'setcolor' || action === 'setmention') {
+      return receiveSelectEditor(interaction, action);
+    }
     return;
+  }
+
+  // Dernière étape d'une recherche de mates : qui notifier.
+  if (domain === 'lfgpanel' && action === 'ping') {
+    return finishLfg(interaction, arg);
   }
 }
 
@@ -215,6 +238,19 @@ async function runModal(interaction) {
 
   if (domain === 'panel' && action === 'event') {
     return receiveEvent(interaction, arg);
+  }
+
+  // Réglages ponctuels depuis l'aperçu : image, lien, champ, programmation.
+  if (domain === 'panel' && action === 'setfield') {
+    return receiveFieldEditor(interaction, arg);
+  }
+
+  if (domain === 'config' && action === 'rules') {
+    return saveRules(interaction);
+  }
+
+  if (domain === 'ticket' && action === 'submit') {
+    return createTicket(interaction);
   }
 
   if (domain === 'strat' && action === 'submit') {

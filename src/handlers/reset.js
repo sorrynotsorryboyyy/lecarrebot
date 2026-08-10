@@ -68,11 +68,19 @@ export async function wipeData(guildId) {
     'strats',
     'warnings',
     'verifications',
+    'tickets',
+    'stats_cache',
+    'member_links',
+    'publications',   // brouillons et publications programmées
     'lfg_posts',      // lfg_joins suit en cascade
     'tournaments',    // tournament_signups suit en cascade
     'giveaways',      // giveaway_entries suit en cascade
     'guild_config',
   ];
+
+  // `invite_credits` n'est PAS purgée : au même titre que les rôles, elle
+  // porte un acquis des membres — le nombre de personnes qu'ils ont fait
+  // venir. Une refonte des salons n'a aucune raison de l'effacer.
 
   let cleared = 0;
 

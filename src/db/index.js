@@ -125,19 +125,20 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS guild_config (
       guild_id            TEXT PRIMARY KEY,
       verify_channel_id   TEXT,
-      rules_channel_id    TEXT,
       logs_channel_id     TEXT,
       lfg_channel_id      TEXT,
       welcome_channel_id  TEXT,
       roles_channel_id    TEXT,
       unverified_role_id  TEXT,
       verified_role_id    TEXT,
-      member_role_id      TEXT,
       rank_roles          JSONB NOT NULL DEFAULT '{}'::jsonb,
       identity_roles      JSONB NOT NULL DEFAULT '{}'::jsonb,
       channel_ids         JSONB NOT NULL DEFAULT '{}'::jsonb,
+      -- Surcharges pilotables par /config, sans redéploiement.
+      media_policies      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      default_banners     JSONB NOT NULL DEFAULT '{}'::jsonb,
       vip_role_id         TEXT,
-      rules_message_id    TEXT,
+      losange_role_id     TEXT,
       rules_text          TEXT,
       antiraid_enabled    BOOLEAN NOT NULL DEFAULT TRUE,
       antiraid_joins      INTEGER NOT NULL DEFAULT 5,
@@ -247,21 +248,94 @@ export async function initDatabase() {
       PRIMARY KEY (post_id, user_id)
     );
 
-    -- Expérience et niveaux
-    CREATE TABLE IF NOT EXISTS member_xp (
+    -- Comptes de jeu liés par les membres.
+    CREATE TABLE IF NOT EXISTS member_links (
       guild_id        TEXT NOT NULL,
       user_id         TEXT NOT NULL,
-      xp              BIGINT NOT NULL DEFAULT 0,
-      level           INTEGER NOT NULL DEFAULT 0,
-      messages        INTEGER NOT NULL DEFAULT 0,
-      voice_minutes   INTEGER NOT NULL DEFAULT 0,
-      searches        INTEGER NOT NULL DEFAULT 0,
-      last_message_at TIMESTAMPTZ,
-      last_search_at  TIMESTAMPTZ,
+      faceit_nickname TEXT,
+      faceit_player_id TEXT,
+      steam_id64      TEXT,
+      linked_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (guild_id, user_id)
     );
-    -- Classement : tri décroissant sur l'XP au sein d'un serveur.
-    CREATE INDEX IF NOT EXISTS idx_xp_leaderboard ON member_xp (guild_id, xp DESC);
+
+    -- Statistiques mises en cache.
+    -- /profil lit ICI et jamais l'API : un appel réseau à chaque affichage
+    -- épuiserait les quotas et rendrait la commande lente.
+    CREATE TABLE IF NOT EXISTS stats_cache (
+      guild_id   TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      source     TEXT NOT NULL,
+      payload    JSONB NOT NULL,
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (guild_id, user_id, source)
+    );
+
+    -- Tickets de support.
+    CREATE TABLE IF NOT EXISTS tickets (
+      id         SERIAL PRIMARY KEY,
+      guild_id   TEXT NOT NULL,
+      channel_id TEXT UNIQUE,
+      user_id    TEXT NOT NULL,
+      subject    TEXT,
+      status     TEXT NOT NULL DEFAULT 'open',
+      closed_by  TEXT,
+      closed_at  TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    -- Index partiel : rend immédiate la garde « un seul ticket ouvert par
+    -- membre ». Sans elle, un membre qui spamme le bouton créerait autant
+    -- de salons que de clics.
+    CREATE INDEX IF NOT EXISTS idx_tickets_open
+      ON tickets (guild_id, user_id) WHERE status = 'open';
+
+    -- Publications composées via le panneau staff.
+    -- Sert à la fois de brouillon (published = FALSE, publish_at NULL) et
+    -- de file d'attente pour les publications programmées. Les brouillons
+    -- vivent en base et non en mémoire : un redéploiement Railway ne doit
+    -- pas faire perdre une annonce en cours de rédaction.
+    CREATE TABLE IF NOT EXISTS publications (
+      id           SERIAL PRIMARY KEY,
+      guild_id     TEXT NOT NULL,
+      kind         TEXT NOT NULL,
+      channel_id   TEXT,
+      message_id   TEXT,
+      title        TEXT NOT NULL DEFAULT '',
+      body         TEXT,
+      image_url    TEXT,
+      link_url     TEXT,
+      link_label   TEXT,
+      color        INTEGER,
+      mention      TEXT,
+      fields       JSONB NOT NULL DEFAULT '[]'::jsonb,
+      extra        JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ref_id       INTEGER,
+      publish_at   TIMESTAMPTZ,
+      published    BOOLEAN NOT NULL DEFAULT FALSE,
+      created_by   TEXT NOT NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    -- Index partiel : le scheduler ne balaie que ce qui reste à publier.
+    CREATE INDEX IF NOT EXISTS idx_pub_pending
+      ON publications (guild_id, publish_at) WHERE published = FALSE;
+    -- Un seul brouillon en cours par rédacteur : le retrouver doit être
+    -- immédiat à chaque clic sur l'aperçu.
+    CREATE INDEX IF NOT EXISTS idx_pub_draft
+      ON publications (guild_id, created_by) WHERE published = FALSE;
+
+    -- Qui a invité qui.
+    -- La clé primaire porte sur l'ARRIVANT : un membre ne peut être crédité
+    -- qu'une fois, même s'il quitte le serveur et y revient.
+    CREATE TABLE IF NOT EXISTS invite_credits (
+      guild_id   TEXT NOT NULL,
+      member_id  TEXT NOT NULL,
+      inviter_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (guild_id, member_id)
+    );
+    -- Classement des parrains : compte par invitant au sein d'un serveur.
+    CREATE INDEX IF NOT EXISTS idx_invite_credits_inviter
+      ON invite_credits (guild_id, inviter_id);
 
     -- Salons vocaux créés à la demande
     CREATE TABLE IF NOT EXISTS temp_voice_channels (
@@ -306,14 +380,27 @@ export async function initDatabase() {
 
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS welcome_channel_id TEXT;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS roles_channel_id   TEXT;
-    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS rules_message_id   TEXT;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS rank_roles JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS identity_roles JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS channel_ids JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS vip_role_id TEXT;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS losange_role_id TEXT;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS media_policies JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE guild_config ADD COLUMN IF NOT EXISTS default_banners JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+    -- Fenêtre d'inscription réservée aux Elite. NULL = ouvert à tous d'emblée.
+    ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS public_signups_at TIMESTAMPTZ;
+    -- Bannière et lien des tournois et giveaways, alimentés par le panneau.
+    ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS image_url TEXT;
+    ALTER TABLE giveaways   ADD COLUMN IF NOT EXISTS image_url TEXT;
 
     ALTER TABLE giveaways ADD COLUMN IF NOT EXISTS vip_only BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE giveaways ADD COLUMN IF NOT EXISTS conditions TEXT;
+
+    -- Le système d'XP a été abandonné : la table n'a jamais reçu la moindre
+    -- écriture (aucun INSERT nulle part dans le code). On la retire pour que
+    -- le schéma cesse de décrire une fonctionnalité inexistante.
+    DROP TABLE IF EXISTS member_xp;
   `);
 
   log.info('Base de données initialisée');
@@ -336,11 +423,12 @@ export async function getGuildConfig(guildId) {
  * d'une commande, il ne doit jamais pouvoir viser une colonne arbitraire.
  */
 const UPDATABLE_FIELDS = new Set([
-  'verify_channel_id', 'rules_channel_id', 'logs_channel_id', 'lfg_channel_id',
+  'verify_channel_id', 'logs_channel_id', 'lfg_channel_id',
   'welcome_channel_id', 'roles_channel_id',
-  'unverified_role_id', 'verified_role_id', 'member_role_id',
-  'rank_roles', 'identity_roles', 'channel_ids', 'vip_role_id',
-  'rules_message_id', 'rules_text',
+  'unverified_role_id', 'verified_role_id',
+  'rank_roles', 'identity_roles', 'channel_ids', 'vip_role_id', 'losange_role_id',
+  'media_policies', 'default_banners',
+  'rules_text',
   'antiraid_enabled', 'antiraid_joins', 'antiraid_window', 'antiraid_min_age',
   'lockdown_active',
 ]);
