@@ -36,12 +36,23 @@ async function enforceMediaPolicy(message, cfg) {
   // partager une capture sans se heurter aux règles des membres.
   if (message.member?.permissions.has(PermissionFlagsBits.ManageMessages)) return false;
 
+  // Les Elite non plus : c'est l'un de leurs avantages.
+  if (cfg.vip_role_id && message.member?.roles.cache.has(cfg.vip_role_id)) return false;
+
   const channelIds = parseJsonColumn(cfg.channel_ids);
 
   // On retrouve la clé du salon par son identifiant mémorisé : un salon
   // renommé reste ainsi correctement filtré.
   const key = Object.keys(channelIds).find((k) => channelIds[k] === message.channel.id);
-  const policyKey = key ? POLICY_BY_KEY.get(key) : null;
+
+  // Une surcharge posée par /config prime sur le plan. `'none'` désactive
+  // explicitement le filtrage, ce qu'une absence de valeur ne dirait pas.
+  const overrides = parseJsonColumn(cfg.media_policies);
+  const override = overrides[message.channel.id];
+
+  if (override === 'none') return false;
+
+  const policyKey = override ?? (key ? POLICY_BY_KEY.get(key) : null);
   if (!policyKey) return false;
 
   const verdict = evaluateMessage({

@@ -10,7 +10,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { query } from '../db/index.js';
+import { getGuildConfig, query } from '../db/index.js';
 import { COLORS } from '../lib/config.js';
 import { log } from '../lib/logger.js';
 import { parseJsonColumn } from '../lib/jsonColumn.js';
@@ -302,10 +302,18 @@ export async function handleVoiceModal(interaction, action) {
     });
   }
 
+  // Les Elite disposent de la plage complète ; les autres sont bornés à 10,
+  // ce qui couvre tous les formats CS2 (5v5 compris, spectateurs inclus).
+  const cfg = await getGuildConfig(interaction.guild.id);
+  const isElite = cfg.vip_role_id && interaction.member.roles.cache.has(cfg.vip_role_id);
+  const maxLimit = isElite ? 99 : 10;
+
   const limit = Number.parseInt(value, 10);
-  if (Number.isNaN(limit) || limit < 0 || limit > 99) {
+  if (Number.isNaN(limit) || limit < 0 || limit > maxLimit) {
     return interaction.reply({
-      content: '❌ Indique un nombre entre **0** (illimité) et **99**.',
+      content:
+        `❌ Indique un nombre entre **0** (illimité) et **${maxLimit}**.` +
+        (isElite ? '' : '\n💎 Les membres **Elite** peuvent monter jusqu\'à 99.'),
       flags: MessageFlags.Ephemeral,
     });
   }
